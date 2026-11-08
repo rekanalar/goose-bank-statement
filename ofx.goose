@@ -28,11 +28,17 @@ import sgml;
 struct OfxOptions {
     skip_pending: bool,
     check_country: bool,
+    // Decode the body with the charset that the header names. The
+    // default is on.
+    auto_charset: bool = true,
 }
 
 // parse_ofx reads one OFX file into the arrays of the caller. The
 // buffer of the caller holds the text that the arrays point at.
-fn parse_ofx(input: const u8[:], lim: Limits&, opts: OfxOptions&,
+// parse_ofx reads an OFX 1.x or 2.x file. When the header names a
+// legacy charset, the body is decoded first, unless the option turns
+// the decode off.
+fn parse_ofx_decoded(input: const u8[:], lim: Limits&, opts: OfxOptions&,
              statements: Statement[>..]&, entries: Entry[>..]&,
              balances: Balance[>..]&, notes: Note[>..]&, buf: u8[>..]&) -> Fault {
     let fi = check_input(input, lim);
@@ -1013,4 +1019,23 @@ fn zone_name(name: const u8[:]) -> i32, bool {
     if ieq(name, "PDT") { return -7 * 60, true; }
     if ieq(name, "GMT") || ieq(name, "UTC") { return 0, true; }
     return 0, false;
+}
+
+// parse_ofx reads an OFX 1.x or 2.x file. When the header names a
+// legacy charset, the body is decoded first, unless the option turns
+// the decode off.
+fn parse_ofx(input: const u8[:], lim: Limits&, opts: OfxOptions&,
+             statements: Statement[>..]&, entries: Entry[>..]&, balances: Balance[>..]&,
+             notes: Note[>..]&, buf: u8[>..]&) -> Fault {
+    if opts.auto_charset {
+        let cs = header_charset(input);
+        if cs != 0 {
+            let mark = buf.len;
+            let f = decode_charset(cs, input, lim, buf);
+            if f.kind != F_NONE { return f; }
+            return parse_ofx_decoded(buf[mark..], lim, opts, statements, entries, balances, notes, buf);
+        }
+    }
+    return parse_ofx_decoded(input, lim, opts, statements, entries, balances, notes, buf);
+
 }

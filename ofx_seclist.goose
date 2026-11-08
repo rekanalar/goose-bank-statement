@@ -120,7 +120,7 @@ fn ofx_security(nodes: SgmlNode[>..]&, id: i32, lim: Limits&, notes: Note[>..]&,
 
 // parse_ofx_securities reads the security list of an OFX file. A file
 // without a list gives no security and no fault.
-fn parse_ofx_securities(input: const u8[:], lim: Limits&, securities: OfxSecurity[>..]&,
+fn parse_ofx_securities_decoded(input: const u8[:], lim: Limits&, securities: OfxSecurity[>..]&,
                         notes: Note[>..]&, buf: u8[>..]&) -> Fault {
     let fi = check_input(input, lim);
     if fi.kind != F_NONE { return fi; }
@@ -316,4 +316,21 @@ fn write_ofx_securities(securities: OfxSecurity[>..]&, notes: Note[>..]&, opts: 
     close_tag(out, w, "SECLISTMSGSRSV1", 1);
     close_tag(out, w, "OFX", 0);
     return check_size(out, lim);
+}
+
+// parse_ofx_securities reads the security list of an OFX file. When the
+// header names a legacy charset, the body is decoded first.
+fn parse_ofx_securities(input: const u8[:], lim: Limits&, securities: OfxSecurity[>..]&,
+                        notes: Note[>..]&, buf: u8[>..]&) -> Fault {
+    if true {
+        let cs = header_charset(input);
+        if cs != 0 {
+            let mark = buf.len;
+            let f = decode_charset(cs, input, lim, buf);
+            if f.kind != F_NONE { return f; }
+            return parse_ofx_securities_decoded(buf[mark..], lim, securities, notes, buf);
+        }
+    }
+    return parse_ofx_securities_decoded(input, lim, securities, notes, buf);
+
 }

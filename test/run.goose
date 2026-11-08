@@ -3068,6 +3068,39 @@ fn run_tree_write(tree: bank_statement::OfxNode[>..]&, opts: bank_statement::Ofx
     return bank_statement::write_ofx_tree(tree, opts, lim, out).kind;
 }
 
+fn test_ofx_charset() {
+    let lim = bank_statement::default_limits();
+    // The header names Windows-1252 and the payee holds a smart quote.
+    var text: const u8[:] = "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\nSECURITY:NONE\nENCODING:USASCII\nCHARSET:1252\nCOMPRESSION:NONE\nOLDFILEUID:NONE\nNEWFILEUID:NONE\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD<BANKACCTFROM><BANKID>1<ACCTID>2<ACCTTYPE>CHECKING</BANKACCTFROM><BANKTRANLIST><STMTTRN><TRNTYPE>CHECK<DTPOSTED>20200101<TRNAMT>-10.00<FITID>1<NAME>Caf\x92 Ltd</NAME></STMTTRN></BANKTRANLIST><LEDGERBAL><BALAMT>0.00<DTASOF>20200101</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>\n";
+    let opts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    assert(bank_statement::parse_ofx(text, lim, opts, sts, ens, bals, notes, buf).kind == 0);
+    assert(ens.len == 1 && ens[0].counter_name == "Caf\xe2\x80\x99 Ltd");
+    // The option off keeps the raw byte.
+    var lax = bank_statement::OfxOptions { .. };
+    lax.auto_charset = false;
+    var sts2: bank_statement::Statement[>..] = [];
+    var ens2: bank_statement::Entry[>..] = [];
+    var bals2: bank_statement::Balance[>..] = [];
+    var notes2: bank_statement::Note[>..] = [];
+    var buf2: u8[>..] = [];
+    assert(bank_statement::parse_ofx(text, lim, lax, sts2, ens2, bals2, notes2, buf2).kind == 0);
+    assert(ens2.len == 1 && ens2[0].counter_name == "Caf\x92 Ltd");
+    // The tree reader decodes too.
+    var tree: bank_statement::OfxNode[>..] = [];
+    var buf3: u8[>..] = [];
+    assert(bank_statement::parse_ofx_tree(text, lim, tree, buf3).kind == 0);
+    var found = false;
+    for n in tree {
+        if n.name == "NAME" { assert(n.text == "Caf\xe2\x80\x99 Ltd"); found = true; }
+    }
+    assert(found);
+}
+
 fn test_ofx_net() {
     let lim = bank_statement::default_limits();
     var body: u8[>..] = [];
@@ -3680,6 +3713,7 @@ fn main() {
     test_ofx_seclist();
     test_country();
     test_ofx_profile();
+    test_ofx_charset();
     test_ofx_net();
     test_ofx_tree();
     test_qif_item_faults();

@@ -159,7 +159,7 @@ fn ofx_msgset(nodes: SgmlNode[>..]&, set: i32, v: i32, lim: Limits&, notes: Note
 
 // parse_ofx_profile reads the profile response of an OFX file. The
 // field found of the profile tells whether the file holds one.
-fn parse_ofx_profile(input: const u8[:], lim: Limits&, profile: OfxProfile&, signons: OfxSignonInfo[>..]&,
+fn parse_ofx_profile_decoded(input: const u8[:], lim: Limits&, profile: OfxProfile&, signons: OfxSignonInfo[>..]&,
                      sets: OfxMsgSet[>..]&, notes: Note[>..]&, buf: u8[>..]&) -> Fault {
     let fi = check_input(input, lim);
     if fi.kind != F_NONE { return fi; }
@@ -227,4 +227,21 @@ fn parse_ofx_profile(input: const u8[:], lim: Limits&, profile: OfxProfile&, sig
         }
     }
     return no_fault();
+}
+
+// parse_ofx_profile reads the profile response of an OFX file. When the
+// header names a legacy charset, the body is decoded first.
+fn parse_ofx_profile(input: const u8[:], lim: Limits&, profile: OfxProfile&, signons: OfxSignonInfo[>..]&,
+                     sets: OfxMsgSet[>..]&, notes: Note[>..]&, buf: u8[>..]&) -> Fault {
+    if true {
+        let cs = header_charset(input);
+        if cs != 0 {
+            let mark = buf.len;
+            let f = decode_charset(cs, input, lim, buf);
+            if f.kind != F_NONE { return f; }
+            return parse_ofx_profile_decoded(buf[mark..], lim, profile, signons, sets, notes, buf);
+        }
+    }
+    return parse_ofx_profile_decoded(input, lim, profile, signons, sets, notes, buf);
+
 }

@@ -31,7 +31,7 @@ struct OfxNode {
 
 // parse_ofx_tree reads the elements under the OFX root. The names go
 // to the capital letters. The names and the texts live in buf.
-fn parse_ofx_tree(input: const u8[:], lim: Limits&, tree: OfxNode[>..]&, buf: u8[>..]&) -> Fault {
+fn parse_ofx_tree_decoded(input: const u8[:], lim: Limits&, tree: OfxNode[>..]&, buf: u8[>..]&) -> Fault {
     let fi = check_input(input, lim);
     if fi.kind != F_NONE { return fi; }
     let h, body, hf = parse_sgml_header(input);
@@ -412,4 +412,20 @@ fn check_ofx_tree(tree: OfxNode[>..]&, lim: Limits&) -> Fault {
         depths.pop();
     }
     return no_fault();
+}
+
+// parse_ofx_tree reads the elements under the OFX root. When the header
+// names a legacy charset, the body is decoded first.
+fn parse_ofx_tree(input: const u8[:], lim: Limits&, tree: OfxNode[>..]&, buf: u8[>..]&) -> Fault {
+    if true {
+        let cs = header_charset(input);
+        if cs != 0 {
+            let mark = buf.len;
+            let f = decode_charset(cs, input, lim, buf);
+            if f.kind != F_NONE { return f; }
+            return parse_ofx_tree_decoded(buf[mark..], lim, tree, buf);
+        }
+    }
+    return parse_ofx_tree_decoded(input, lim, tree, buf);
+
 }
