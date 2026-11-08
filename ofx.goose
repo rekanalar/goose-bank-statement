@@ -658,8 +658,12 @@ fn ofx_invtran(nodes: SgmlNode[>..]&, id: i32, kind: const u8[:], ccy: const u8[
         }
         e.type_id = buf[start..];
     }
-    // INVTRAN holds the references and the dates.
-    let it = sgml_child(nodes, id, "INVTRAN");
+    // INVTRAN holds the references and the dates. It sits in the
+    // aggregate, or in its INVBUY or INVSELL child as the specification
+    // orders it.
+    var it = sgml_child(nodes, id, "INVTRAN");
+    if it < 0 { it = ofx_money_child(nodes, id, "INVBUY", "INVTRAN"); }
+    if it < 0 { it = ofx_money_child(nodes, id, "INVSELL", "INVTRAN"); }
     if it >= 0 {
         let fit = sgml_child(nodes, it, "FITID");
         if fit >= 0 { e.entry_ref = sgml_text_of(nodes, fit, buf); }

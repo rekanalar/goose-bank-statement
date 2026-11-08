@@ -17,7 +17,7 @@ fn main() {
     let opts = bank_statement::OfxWriteOptions {
         version: 211, credit_card: false, close_leaves: false, indent: true,
         server_date: bank_statement::Date { year: 2020, month: 1, day: 1 },
-        org: "", fid: "", bank_id: "", account_type: "", currency: "",
+        org: "", fid: "", bank_id: "", account_type: "", currency: "", loose_elements: false,
     };
     var out: u8[>..] = [];
     let f = bank_statement::write_ofx_tree(tree, opts, lim, out);

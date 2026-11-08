@@ -38,6 +38,7 @@ struct OfxWriteOptions {
     bank_id: const u8[:],
     account_type: const u8[:],
     currency: const u8[:],
+    loose_elements: bool,
 }
 
 // OfxForm holds the layout of the body.

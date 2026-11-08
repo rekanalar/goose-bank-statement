@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.17.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.18.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -41,7 +41,8 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_ofx_securities(input, lim, securities, notes, buf)` | reads the security list of an OFX file; gives a `Fault` |
 | `parse_ofx_profile(input, lim, profile, signons, sets, notes, buf)` | reads the profile response of an OFX file; gives a `Fault` |
 | `parse_ofx_tree(input, lim, tree, buf)` | reads every element under the OFX root into a flat list of `OfxNode`; gives a `Fault` |
-| `write_ofx_tree(tree, opts, lim, out)` | appends an OFX file from a list of `OfxNode`; gives a `Fault` |
+| `write_ofx_tree(tree, opts, lim, out)` | appends an OFX file from a list of `OfxNode`; checks each element against the rules; gives a `Fault` |
+| `check_ofx_tree(tree, lim)` | checks a list of `OfxNode` against the element rules of OFX; gives the first `Fault` |
 | `parse_dialect(kind, text, lim, values, buffer)` | reads the named values of a `:86:` text of a Dutch bank; gives a `Fault` |
 | `parse_qif_lists(input, lim, opts, items, budgets, lines, extra, prices)` | reads the list sections of a QIF file into typed records; gives a `Fault` |
 | `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
@@ -558,7 +559,17 @@ The reader keeps every element and every value, in document order.
 The writer checks each name: 1 to 32 capital letters or digits.
 It allows no depth that is two steps down, and no text in an aggregate. A leaf of the OFX DTD needs a text.
 It checks each text for control bytes, escapes `& < >`, and writes the bytes above 127 as numeric references.
-The writer does not know the element order, the enum values or the length of each element. The caller builds those.
+
+The writer also checks every element against the rules of the OFX specification.
+The rules cover 386 aggregates and 46 enum sets. The table names Python `ofxtools` as its source.
+
+The check refuses an element that the aggregate does not allow. It refuses an element out of order.
+It refuses a required element that is absent. It refuses a text that breaks its kind.
+It refuses a leaf where an aggregate belongs.
+
+A name that starts with `X` and has no rule row stays unchecked with its children.
+The specification keeps that range for private extensions.
+Set `loose_elements` in `OfxWriteOptions` to skip the element check. `check_ofx_tree` runs the check alone.
 
 **OFX profile.** `parse_ofx_profile` reads the `PROFRS` aggregate of a profile response.
 
@@ -586,7 +597,8 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The camt reader reads the statements, not the whole message.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message.
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
-- **The investment statement, the sign-on request and bill pay have no typed record.** The element tree writer writes them. It does not check the element order, the enum values or the lengths. Python `ofxtools` and Go `ofxgo` model each element.
+- **The investment statement, the sign-on request and bill pay have no typed record.** The element tree writer writes them. It checks each element against the rules. Python `ofxtools` and Go `ofxgo` model each element.
+- **The element rule check has blind spots.** It does not check how many times an element may repeat. It does not check two aggregates that exclude each other. A row with no rule and a private `X` aggregate stay unchecked inside.
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.
@@ -634,6 +646,7 @@ Protections beyond the reference libraries:
   reference library does. A deep SGML body crashes `ofx-js` and
   `ofxtools` with a stack overflow.
 - **No entity of a document expands.** The package `goose-xml` skips a doctype. It never expands an entity. An unknown entity is a fault. It also refuses a picture deeper than 256 levels. Java `prowide-iso20022` and Python `camt053` use a parser that reads a doctype with an internal subset.
+- **The OFX tree writer checks the rules.** An unknown element is a fault. So is an element out of order. So is a required element that is absent. So is a text that breaks its kind. The reference writers trust the caller.
 - **The OFX writer escapes text.** Python `ofxtools` writes the text of the SGML form raw. A memo that holds `</STMTTRN><STMTTRN>` then adds a transaction. This package writes `&`, `<` and `>` as entities. It writes a byte above 127 as a numeric reference. Both forms do this.
 - **The QIF writer refuses a line end.** Python `quiffen` escapes nothing. A payee with a line end can add an amount or end the record. This package gives a fault. A field code of `!` or `^` is a fault too.
 - **The MT940 writer refuses a tag line.** A narrative line that starts with a colon is a fault. So is a lone minus. So is a byte outside the SWIFT set.

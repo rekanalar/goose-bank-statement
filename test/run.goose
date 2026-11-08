@@ -1719,6 +1719,7 @@ NEWFILEUID:NONE
 <DTSTART>20200301000000
 <DTEND>20200401000000
 <BUYSTOCK>
+<INVBUY>
 <INVTRAN>
 <FITID>B1
 <DTTRADE>20200310
@@ -1728,11 +1729,12 @@ NEWFILEUID:NONE
 <UNIQUEID>037833100
 <UNIQUEIDTYPE>CUSIP
 </SECID>
-<INVBUY>
 <UNITS>10.5
 <UNITPRICE>100.125
 <COMMISSION>9.95
 <TOTAL>-1051.25
+<SUBACCTSEC>CASH
+<SUBACCTFUND>CASH
 </INVBUY>
 <BUYTYPE>BUY
 </BUYSTOCK>
@@ -1744,10 +1746,11 @@ NEWFILEUID:NONE
 <SECID>
 <UNIQUEID>037833100
 <UNIQUEIDTYPE>CUSIP
-</UNIQUEID>
 </SECID>
 <INCOMETYPE>DIV
 <TOTAL>25.00
+<SUBACCTSEC>CASH
+<SUBACCTFUND>CASH
 </INCOME>
 </INVTRANLIST>
 <INVPOSLIST>
@@ -2515,7 +2518,7 @@ fn ofx_wopts(version: i32) -> bank_statement::OfxWriteOptions {
     return bank_statement::OfxWriteOptions {
         version: version, credit_card: false, close_leaves: false, indent: false,
         server_date: bank_statement::Date { year: 2020, month: 2, day: 1 },
-        org: "TESTBANK", fid: "12345", bank_id: "", account_type: "", currency: "",
+        org: "TESTBANK", fid: "12345", bank_id: "", account_type: "", currency: "", loose_elements: false,
     };
 }
 
@@ -2979,6 +2982,21 @@ fn tree_node(depth: i32, name: const u8[:], text: const u8[:]) -> bank_statement
     return bank_statement::OfxNode { depth: depth, name: name, text: text };
 }
 
+// ofx_wopts_loose gives options that skip the element rules. The writer
+// then checks only the names, the depths and the texts.
+fn ofx_wopts_loose() -> bank_statement::OfxWriteOptions {
+    var o = ofx_wopts(102);
+    o.loose_elements = true;
+    return o;
+}
+
+// run_tree_write writes a tree with the options and gives the fault.
+fn run_tree_write(tree: bank_statement::OfxNode[>..]&, opts: bank_statement::OfxWriteOptions) -> i32 {
+    let lim = bank_statement::default_limits();
+    var out: u8[>..] = [];
+    return bank_statement::write_ofx_tree(tree, opts, lim, out).kind;
+}
+
 fn test_ofx_tree() {
     let lim = bank_statement::default_limits();
     var tree: bank_statement::OfxNode[>..] = [];
@@ -3033,6 +3051,7 @@ fn test_ofx_tree() {
     var req: bank_statement::OfxNode[>..] = [
         tree_node(0, "SIGNONMSGSRQV1", ""), tree_node(1, "SONRQ", ""), tree_node(2, "DTCLIENT", "20200101"),
         tree_node(2, "USERID", "a<b>&c"), tree_node(2, "LANGUAGE", "ENG"),
+        tree_node(2, "APPID", "GOOSE"), tree_node(2, "APPVER", "2600"),
     ];
     var ro: u8[>..] = [];
     assert(bank_statement::write_ofx_tree(req, ofx_wopts(211), lim, ro).kind == 0);
@@ -3040,21 +3059,55 @@ fn test_ofx_tree() {
     var back: bank_statement::OfxNode[>..] = [];
     var rb: u8[>..] = [];
     assert(bank_statement::parse_ofx_tree(ro, lim, back, rb).kind == 0);
-    assert(back.len == 5 && back[3].text == "a<b>&c");
-    // Refusals: a bad name, a depth jump, a text in an aggregate, a control byte, an empty leaf.
-    var o2: u8[>..] = [];
+    assert(back.len == 7 && back[3].text == "a<b>&c");
+    // Refusals of the loose writer: a bad name, a depth jump, a text in
+    // an aggregate, a control byte, an empty leaf.
     var bad1: bank_statement::OfxNode[>..] = [tree_node(0, "a b", "x")];
-    assert(bank_statement::write_ofx_tree(bad1, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    assert(run_tree_write(bad1, ofx_wopts_loose()) == bank_statement::F_SYNTAX);
     var bad2: bank_statement::OfxNode[>..] = [tree_node(0, "A", ""), tree_node(2, "B", "x")];
-    assert(bank_statement::write_ofx_tree(bad2, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    assert(run_tree_write(bad2, ofx_wopts_loose()) == bank_statement::F_SYNTAX);
     var bad3: bank_statement::OfxNode[>..] = [tree_node(0, "A", "text"), tree_node(1, "B", "x")];
-    assert(bank_statement::write_ofx_tree(bad3, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    assert(run_tree_write(bad3, ofx_wopts_loose()) == bank_statement::F_SYNTAX);
     var bad4: bank_statement::OfxNode[>..] = [tree_node(0, "A", "x\x01y")];
-    assert(bank_statement::write_ofx_tree(bad4, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    assert(run_tree_write(bad4, ofx_wopts_loose()) == bank_statement::F_SYNTAX);
     var bad5: bank_statement::OfxNode[>..] = [tree_node(0, "MEMO", "")];
-    assert(bank_statement::write_ofx_tree(bad5, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    assert(run_tree_write(bad5, ofx_wopts_loose()) == bank_statement::F_SYNTAX);
     var bad6: bank_statement::OfxNode[>..] = [tree_node(1, "A", "x")];
-    assert(bank_statement::write_ofx_tree(bad6, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    assert(run_tree_write(bad6, ofx_wopts_loose()) == bank_statement::F_SYNTAX);
+    // Refusals of the rule check: an unknown element, a missing
+    // required element, a wrong order, a bad flag value, an unknown tag
+    // inside an aggregate.
+    var r1: bank_statement::OfxNode[>..] = [tree_node(0, "NOTREAL", "x")];
+    assert(run_tree_write(r1, ofx_wopts(102)) == bank_statement::F_UNKNOWN_TAG);
+    var r2: bank_statement::OfxNode[>..] = [
+        tree_node(0, "SIGNONMSGSRQV1", ""), tree_node(1, "SONRQ", ""), tree_node(2, "DTCLIENT", "20200101"),
+    ];
+    assert(run_tree_write(r2, ofx_wopts(102)) == bank_statement::F_SYNTAX);
+    var r3: bank_statement::OfxNode[>..] = [
+        tree_node(0, "SIGNONMSGSRQV1", ""), tree_node(1, "SONRQ", ""), tree_node(2, "USERID", "alice"),
+        tree_node(2, "DTCLIENT", "20200101"), tree_node(2, "LANGUAGE", "ENG"),
+        tree_node(2, "APPID", "GOOSE"), tree_node(2, "APPVER", "2600"),
+    ];
+    assert(run_tree_write(r3, ofx_wopts(102)) == bank_statement::F_SYNTAX);
+    var r4: bank_statement::OfxNode[>..] = [
+        tree_node(0, "SIGNONMSGSRQV1", ""), tree_node(1, "SONRQ", ""), tree_node(2, "DTCLIENT", "20200101"),
+        tree_node(2, "USERID", "alice"), tree_node(2, "GENUSERKEY", "MAYBE"),
+        tree_node(2, "LANGUAGE", "ENG"),
+        tree_node(2, "APPID", "GOOSE"), tree_node(2, "APPVER", "2600"),
+    ];
+    assert(run_tree_write(r4, ofx_wopts(102)) == bank_statement::F_SYNTAX);
+    var r5: bank_statement::OfxNode[>..] = [
+        tree_node(0, "SIGNONMSGSRQV1", ""), tree_node(1, "SONRQ", ""), tree_node(2, "DTCLIENT", "20200101"),
+        tree_node(2, "USERID", "alice"), tree_node(2, "LANGUAGE", "ENG"),
+        tree_node(2, "APPID", "GOOSE"), tree_node(2, "APPVER", "2600"),
+        tree_node(2, "NOTINSONRQ", "x"),
+    ];
+    assert(run_tree_write(r5, ofx_wopts(102)) == bank_statement::F_UNKNOWN_TAG);
+    // A private extension at the start of X passes the rule check.
+    var px: bank_statement::OfxNode[>..] = [
+        tree_node(0, "XTENSION", ""), tree_node(1, "XFIELD", "free"),
+    ];
+    assert(run_tree_write(px, ofx_wopts(102)) == 0);
 }
 
 fn test_write_qif_lists() {
