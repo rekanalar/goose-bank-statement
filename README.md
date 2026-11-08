@@ -8,23 +8,26 @@ It also reads the ISO 20022 XML documents camt.052, camt.053 and camt.054.
 It reads the OFX 1.x and OFX 2.x files of the banks of North America.
 It writes QIF, OFX and MT940.
 
-Pure Goose, no C. The package uses the standard library and the package `goose-xml`.
+Pure Goose, no C. The package uses the standard library and the packages `goose-xml`, `goose-process` and `goose-finance`.
 
 Money is an integer count of minor units with the exponent of its currency. The package uses no float.
 Every parse is one linear pass with no recursion. Every size has a limit.
 
 ## Install
 
-Add these two lines to the root file of the program that uses it:
+Add these lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.28.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.30.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
+import process from "rekanalar/goose-process@v1.0.0";
+import finance from "rekanalar/goose-finance@v0.1.0";
 ```
 
 The camt reader uses the package `goose-xml`. The network client uses the package `goose-process`.
+The money bridge uses the package `goose-finance`.
 A package that needs another package must have that package declared in the root file of the program.
-If the second line is missing, the compiler names the line to add.
+If a line is missing, the compiler names the line to add.
 
 ## API
 
@@ -525,6 +528,17 @@ The count of values has the limit `max_fields`. The text has the limit `max_fiel
 The values point into the text or into the buffer. Both must outlive the values.
 The ABN AMRO account number loses its dots, so it goes into the buffer.
 This package keeps scanning the tags after the account number. Python `mt940` stops there, so this package may give more values.
+
+### The money bridge
+
+An amount of a statement holds the exponent that the file names.
+A money value of `goose-finance` holds the exponent of the ISO table.
+`amount_money` converts when the two agree. A mismatch is a fault, and the caller keeps the amount.
+`money_amount` converts back, with the exponent that the caller names.
+
+```goose
+let m, fault = bank_statement::amount_money(entry.amount);
+```
 
 ### Transcoding
 
