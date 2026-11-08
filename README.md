@@ -6,6 +6,8 @@ Bank statement files for the [Goose](https://github.com/aardappel/goose) program
 The package reads SWIFT MT940 statements, SWIFT MT942 interim reports and QIF files.
 It also reads the ISO 20022 XML documents camt.052, camt.053 and camt.054.
 It reads the OFX 1.x and OFX 2.x files of the banks of North America.
+It writes QIF, OFX and MT940.
+
 Pure Goose, no C. The package uses the standard library and the package `goose-xml`.
 
 Money is an integer count of minor units with the exponent of its currency. The package uses no float.
@@ -16,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.6.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.7.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -36,6 +38,10 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_qif(input, lim, opts, records, splits, extra)` | reads a QIF file; gives a `Fault` |
 | `parse_camt(input, lim, opts, statements, entries, balances, buf)` | reads a camt.052, camt.053 or camt.054 document; gives a `Fault` |
 | `parse_ofx(input, lim, opts, statements, entries, balances, notes, buf)` | reads an OFX 1.x or OFX 2.x file; gives a `Fault` |
+| `parse_dialect(kind, text, lim, values, buffer)` | reads the named values of a `:86:` text of a Dutch bank; gives a `Fault` |
+| `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
+| `write_ofx(statements, entries, notes, opts, lim, out)` | appends an OFX 1.x or 2.x file to `out`; gives a `Fault` |
+| `write_mt940(statements, entries, lim, out)` | appends MT940 statements to `out`; gives a `Fault` |
 | `split_category(l)` | splits an `L` value into name, sub-category, class and transfer account |
 | `parse_amount(text, exp, decimal, group)` | reads an amount into minor units; gives `Amount, Fault` |
 | `parse_number(text, decimal, group)` | reads a decimal into a mantissa and a scale; the scale drops the zeros at the end of the decimal part; gives `i64, i32, Fault` |
@@ -364,12 +370,62 @@ The names keep the names of the Python library.
 
 A text of another bank gives no value and no fault. An unknown kind is a fault.
 
-
 The count of values has the limit `max_fields`. The text has the limit `max_field`.
 
 The values point into the text or into the buffer. Both must outlive the values.
 The ABN AMRO account number loses its dots, so it goes into the buffer.
 This package keeps scanning the tags after the account number. Python `mt940` stops there, so this package may give more values.
+
+### Writers
+
+Each writer takes the arrays that the matching reader gives. It appends text to a `u8[>..]` buffer of the caller.
+What a writer writes, the reader reads back to the same values.
+A fault leaves partial text in the buffer. Do not use it.
+
+Every writer checks each text before it writes the text. It never cuts a text and never repairs one.
+A control byte is a fault. A text that is too long is a fault. The output has the limit `max_input`.
+
+**QIF.** `write_qif` writes the sections Bank, Cash, CCard, Oth A, Oth L, Account, Cat and Class.
+A record writes `D`, `T`, `U`, `C`, `N`, `P`, `M`, `L`, the splits and `F`.
+
+It also writes the extra fields, such as the `A` lines. Each address line is one `A` line.
+`QifWriteOptions.date_order` is `DATE_MDY` (the default), `DATE_DMY` or `DATE_YMD`.
+
+The splits must add up to the amount, or the writer gives `F_TOTAL`.
+A field code is a printable byte. It is not `!` and not `^`.
+
+**OFX.** `write_ofx` writes bank statements. With `credit_card` it writes credit card statements.
+Version 1.x writes the header with CRLF and a blank line, and leaves the leaf tags open. The default version is 1.0.2.
+Version 2.x writes the XML declaration, the OFX instruction and closed leaves.
+
+`close_leaves` closes the leaves in 1.x. `indent` writes one tag per line.
+The server date is an option, because the writer reads no clock. Dates carry the time `000000.000[0:GMT]`.
+
+A statement needs a closing balance. The writer writes `LEDGERBAL` from it and `AVAILBAL` from the available balance.
+
+The OFX writer checks `TRNTYPE`, `ACCTTYPE`, the currency, the version and the required fields.
+It also checks the limit of each text, in bytes.
+The limits are `NAME` 32, `MEMO` 255 and `FITID` 255.
+They are `CHECKNUM` 12, `REFNUM` 32 and `SRVRTID` 10.
+They are `ACCTID` 22, `BANKID` 9 and `TRNUID` 36.
+
+**MT940.** `write_mt940` writes `:20:`, `:21:`, `:25:`, `:28C:`, `:60F:`, the entries with `:86:`, `:62F:`, `:64:` and `:65:`.
+It applies the field rules of the SWIFT manual. Those rules cover the widths and the character set.
+They also limit a narrative to 6 lines of 65 characters.
+The amount has a comma. The years run from 1970 to 2069.
+
+The writer checks that the opening balance and the entries add up to the closing balance, or it gives `F_BALANCE`.
+
+An entry needs the mark and a type of four characters that starts with S, N or F.
+An empty customer reference becomes `NONREF`.
+
+**References.** Python `ofxtools` and Go `ofxgo` write OFX. Python `quiffen` writes QIF. Java `prowide-core` writes MT940.
+Node `ofx-js` reads only. GnuCash and Rust `qif_parser` write no QIF.
+
+The Python, Node and Rust MT940 libraries read only.
+
+`ofxgo` writes the date offset as `[0:GMT]` and `ofxtools` writes `[+0:UTC]`. No standard fixes the choice, so this package writes `[0:GMT]`.
+The QIF date has no standard order, so the caller chooses it.
 
 ## Limits
 
@@ -378,14 +434,16 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The camt reader reads the statements, not the whole message.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message.
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
-- **There is no writer.** `ofxtools` writes OFX and GnuCash writes QIF.
+- **The writers write what the reader types hold.** The reader keeps no `DTUSER`, `CORRECTFITID`, `CORRECTACTION`, `PAYEEID`, `CURRENCY` or `ORIGCURRENCY`. So the OFX writer writes none of them. It writes no investment statement, no sign-on request, no bill pay and no payee list.
+- **The MT940 writer writes no interim report.** It writes no MT942.
+- **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only four bank dialects exist.** The package reads Rabobank, ABN AMRO, ING and Regiobank. Python `mt940` 5.1.3 also reads mBank, ASN Bank and GLS. A caller reads other banks from the `:86:` text.
 - **There is no transcoding.** A byte above 127 passes through into the text. Node `@fin.cx/mt940` fixes the encoding of each field.
 - **The OFX reader reads no security list and no profile.** The
   securities of an investment statement come as positions only.
   Python `ofxtools` and Go `ofxgo` read the whole security list.
-- **The OFX reader has no writer and no network.** Python `ofxtools` and
+- **The OFX package has no network.** Python `ofxtools` and
   Go `ofxgo` speak OFX over HTTPS. The standard library of Goose has no
   HTTP client.
 - **The QIF sections beyond the transactions keep no typed record.** They hold lines as `QifField` values. GnuCash gives each one a record of its own type.
@@ -424,6 +482,10 @@ Protections beyond the reference libraries:
   reference library does. A deep SGML body crashes `ofx-js` and
   `ofxtools` with a stack overflow.
 - **No entity of a document expands.** The package `goose-xml` skips a doctype. It never expands an entity. An unknown entity is a fault. It also refuses a picture deeper than 256 levels. Java `prowide-iso20022` and Python `camt053` use a parser that reads a doctype with an internal subset.
+- **The OFX writer escapes text.** Python `ofxtools` writes the text of the SGML form raw. A memo that holds `</STMTTRN><STMTTRN>` then adds a transaction. This package writes `&`, `<` and `>` as entities. It writes a byte above 127 as a numeric reference. Both forms do this.
+- **The QIF writer refuses a line end.** Python `quiffen` escapes nothing. A payee with a line end can add an amount or end the record. This package gives a fault. A field code of `!` or `^` is a fault too.
+- **The MT940 writer refuses a tag line.** A narrative line that starts with a colon is a fault. So is a lone minus. So is a byte outside the SWIFT set.
+- **The writers use no float.** An amount comes from minor units by integer division. The most negative 64-bit value writes without overflow.
 
 Risks that stay:
 

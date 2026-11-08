@@ -2317,6 +2317,313 @@ fn test_dialect_hostile() {
     assert(h.kind == 1);
 }
 
+fn same_record(a: bank_statement::QifRecord, b: bank_statement::QifRecord) {
+    assert(a.section == b.section);
+    assert(a.date.year == b.date.year && a.date.month == b.date.month && a.date.day == b.date.day);
+    assert(a.has_amount == b.has_amount && a.amount.minor == b.amount.minor);
+    assert(a.cleared == b.cleared && a.number == b.number && a.payee == b.payee);
+    assert(a.memo == b.memo && a.category == b.category);
+    assert(a.split_count == b.split_count && a.field_count == b.field_count);
+}
+
+fn qif_round_trip(order: i32) {
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::QifOptions { date_order: bank_statement::DATE_MDY, .. };
+    var recs: bank_statement::QifRecord[>..] = [];
+    var spl: bank_statement::QifSplit[>..] = [];
+    var ext: bank_statement::QifField[>..] = [];
+    let f = bank_statement::parse_qif(QIF1, lim, ropts, recs, spl, ext);
+    assert(f.kind == 0);
+    var out: u8[>..] = [];
+    let wopts = bank_statement::QifWriteOptions { date_order: order };
+    let w = bank_statement::write_qif(recs, spl, ext, wopts, lim, out);
+    if w.kind != 0 { print("FAIL qif write ", bank_statement::kind_name(w.kind), " ", w.detail, "\n"); }
+    assert(w.kind == 0);
+    var o2 = order;
+    if o2 == 0 { o2 = bank_statement::DATE_MDY; }
+    let popts = bank_statement::QifOptions { date_order: o2, .. };
+    var recs2: bank_statement::QifRecord[>..] = [];
+    var spl2: bank_statement::QifSplit[>..] = [];
+    var ext2: bank_statement::QifField[>..] = [];
+    let g = bank_statement::parse_qif(out, lim, popts, recs2, spl2, ext2);
+    if g.kind != 0 { print("FAIL qif reread ", bank_statement::kind_name(g.kind), " ", g.detail, " line ", g.line, "\n"); }
+    assert(g.kind == 0);
+    assert(recs2.len == recs.len);
+    var i = 0;
+    while i < recs.len { same_record(recs[i], recs2[i]); i += 1; }
+    assert(spl2.len == spl.len && ext2.len == ext.len);
+    assert(spl2[0].category == spl[0].category && spl2[0].amount.minor == spl[0].amount.minor);
+    assert(ext2[0].value == ext[0].value);
+}
+
+fn test_write_qif() {
+    qif_round_trip(0);
+    qif_round_trip(bank_statement::DATE_DMY);
+    qif_round_trip(bank_statement::DATE_YMD);
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::QifOptions { date_order: bank_statement::DATE_MDY, .. };
+    var recs: bank_statement::QifRecord[>..] = [];
+    var spl: bank_statement::QifSplit[>..] = [];
+    var ext: bank_statement::QifField[>..] = [];
+    assert(bank_statement::parse_qif(QIF1, lim, ropts, recs, spl, ext).kind == 0);
+    let wopts = bank_statement::QifWriteOptions { date_order: 0 };
+    // A line end in a text is a fault: the value cannot add a field.
+    recs[0].payee = "Eve\nT999.00";
+    var out: u8[>..] = [];
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, out).kind == bank_statement::F_SYNTAX);
+    recs[0].payee = "Eve";
+    recs[0].memo = "a\r^\r";
+    var o2: u8[>..] = [];
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, o2).kind == bank_statement::F_SYNTAX);
+    recs[0].memo = "ok";
+    // A text that is too long is a fault. It is never cut.
+    var big: u8[>..] = [];
+    bank_statement::put_num(big, 0, 5000);
+    recs[0].memo = big;
+    var o3: u8[>..] = [];
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, o3).kind == bank_statement::F_LIMIT);
+    recs[0].memo = "ok";
+    // The splits must add up to the amount.
+    spl[0].amount.minor = spl[0].amount.minor + 1;
+    var o4: u8[>..] = [];
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, o4).kind == bank_statement::F_TOTAL);
+    spl[0].amount.minor = spl[0].amount.minor - 1;
+    // A field code cannot start a header or end the record.
+    ext[0].code = '^';
+    var o5: u8[>..] = [];
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, o5).kind == bank_statement::F_SYNTAX);
+    ext[0].code = '!';
+    var o6: u8[>..] = [];
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, o6).kind == bank_statement::F_SYNTAX);
+    ext[0].code = 'A';
+    // A date that does not exist is a fault.
+    recs[0].date.day = 31;
+    recs[0].date.month = 2;
+    var o7: u8[>..] = [];
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, o7).kind == bank_statement::F_DATE);
+    // The most negative amount and the other exponents.
+    var a: u8[>..] = [];
+    bank_statement::put_amount(a, -9223372036854775808, 2, '.');
+    assert(a == "-92233720368547758.08");
+    var b: u8[>..] = [];
+    bank_statement::put_amount(b, 5, 3, ',');
+    assert(b == "0,005");
+    var c: u8[>..] = [];
+    bank_statement::put_amount(c, -7, 0, '.');
+    assert(c == "-7");
+}
+
+fn ofx_wopts(version: i32) -> bank_statement::OfxWriteOptions {
+    return bank_statement::OfxWriteOptions {
+        version: version, credit_card: false, close_leaves: false, indent: false,
+        server_date: bank_statement::Date { year: 2020, month: 2, day: 1 },
+        org: "TESTBANK", fid: "12345", bank_id: "", account_type: "", currency: "",
+    };
+}
+
+fn same_entry(a: bank_statement::Entry, b: bank_statement::Entry) {
+    assert(a.mark == b.mark && a.amount.minor == b.amount.minor && a.amount.currency == b.amount.currency);
+    assert(a.type_id == b.type_id && a.entry_ref == b.entry_ref && a.customer_ref == b.customer_ref);
+    assert(a.counter_name == b.counter_name && a.narrative == b.narrative);
+    assert(a.value_date.year == b.value_date.year && a.value_date.month == b.value_date.month);
+    assert(a.value_date.day == b.value_date.day);
+}
+
+// ofx_round_trip writes the sample, reads it back and compares.
+fn ofx_round_trip(opts: bank_statement::OfxWriteOptions) {
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    assert(bank_statement::parse_ofx(OFX_V1, lim, ropts, sts, ens, bals, notes, buf).kind == 0);
+    var out: u8[>..] = [];
+    let w = bank_statement::write_ofx(sts, ens, notes, opts, lim, out);
+    if w.kind != 0 { print("FAIL ofx write ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
+    assert(w.kind == 0);
+    var sts2: bank_statement::Statement[>..] = [];
+    var ens2: bank_statement::Entry[>..] = [];
+    var bals2: bank_statement::Balance[>..] = [];
+    var notes2: bank_statement::Note[>..] = [];
+    var buf2: u8[>..] = [];
+    let g = bank_statement::parse_ofx(out, lim, ropts, sts2, ens2, bals2, notes2, buf2);
+    if g.kind != 0 { print("FAIL ofx reread ", bank_statement::kind_name(g.kind), " ", g.tag, " ", g.detail, "\n"); }
+    assert(g.kind == 0);
+    assert(sts2.len == 1 && ens2.len == 2);
+    assert(sts2[0].account == "999999" && sts2[0].reference == "1");
+    same_entry(ens[0], ens2[0]);
+    same_entry(ens[1], ens2[1]);
+    assert(sts2[0].closing.amount.minor == 113456 && sts2[0].available.amount.minor == 113456);
+    assert(sts2[0].closing.date.day == 31);
+}
+
+fn test_write_ofx() {
+    ofx_round_trip(ofx_wopts(0));
+    ofx_round_trip(ofx_wopts(203));
+    var o = ofx_wopts(151);
+    o.close_leaves = true;
+    ofx_round_trip(o);
+    var p = ofx_wopts(220);
+    p.indent = true;
+    ofx_round_trip(p);
+    var q = ofx_wopts(102);
+    q.indent = true;
+    ofx_round_trip(q);
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    assert(bank_statement::parse_ofx(OFX_V1, lim, ropts, sts, ens, bals, notes, buf).kind == 0);
+    // The header of version 1 ends with a blank line.
+    var h: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(0), lim, h).kind == 0);
+    assert(h[..13] == "OFXHEADER:100");
+    assert(find(h, "\r\n\r\n<OFX>") > 0);
+    // The leaves stay open in version 1 and close in version 2.
+    assert(find(h, "<CODE>0<SEVERITY>") > 0);
+    var h2: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(203), lim, h2).kind == 0);
+    assert(find(h2, "<CODE>0</CODE>") > 0 && find(h2, "<?xml") == 0);
+    // A hostile memo cannot add a transaction, in either form.
+    ens[1].narrative = "</STMTTRN><STMTTRN><TRNAMT>999<MEMO>a&b";
+    var evil: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, evil).kind == 0);
+    assert(find(evil, "</STMTTRN><STMTTRN><TRNAMT>999") < 0);
+    var s2: bank_statement::Statement[>..] = [];
+    var e2: bank_statement::Entry[>..] = [];
+    var b2: bank_statement::Balance[>..] = [];
+    var n2: bank_statement::Note[>..] = [];
+    var u2: u8[>..] = [];
+    assert(bank_statement::parse_ofx(evil, lim, ropts, s2, e2, b2, n2, u2).kind == 0);
+    assert(e2.len == 2);
+    assert(e2[1].narrative == "</STMTTRN><STMTTRN><TRNAMT>999<MEMO>a&b");
+    // A byte above 127 becomes a numeric reference and reads back.
+    ens[1].narrative = "caf\xC3\xA9";
+    var uni: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, uni).kind == 0);
+    assert(find(uni, "caf&#233;") > 0);
+    // Refusals.
+    ens[1].narrative = "bad\x00byte";
+    var r1: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, r1).kind == bank_statement::F_SYNTAX);
+    ens[1].narrative = "\xFF";
+    var r2: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, r2).kind == bank_statement::F_SYNTAX);
+    var long: u8[>..] = [];
+    bank_statement::put_num(long, 0, 256);
+    ens[1].narrative = long;
+    var r3: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, r3).kind == bank_statement::F_LIMIT);
+    ens[1].narrative = "ok";
+    ens[1].type_id = "BOGUS";
+    var r4: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, r4).kind == bank_statement::F_SYNTAX);
+    ens[1].type_id = "CREDIT";
+    ens[1].entry_ref = "";
+    var r5: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, r5).kind == bank_statement::F_SYNTAX);
+    ens[1].entry_ref = "TX2";
+    var bad = ofx_wopts(102);
+    bad.server_date = bank_statement::Date { year: 2020, month: 13, day: 1 };
+    var r6: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, bad, lim, r6).kind == bank_statement::F_DATE);
+    var r7: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(999), lim, r7).kind == bank_statement::F_SYNTAX);
+    // A statement without a closing balance is refused.
+    sts[0].closing.kind = 0;
+    var r8: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, r8).kind == bank_statement::F_SYNTAX);
+}
+
+fn test_write_mt940() {
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    let popts = bank_statement::Mt940Options { .. };
+    assert(bank_statement::parse_mt940(STMT1, lim, popts, sts, ens, bals, notes).kind == 0);
+    var out: u8[>..] = [];
+    let w = bank_statement::write_mt940(sts, ens, lim, out);
+    if w.kind != 0 { print("FAIL mt940 write ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
+    assert(w.kind == 0);
+    assert(find(out, ":60F:C250101EUR1000,00") >= 0);
+    // The writer output reads back with the field rules on.
+    var s2: bank_statement::Statement[>..] = [];
+    var e2: bank_statement::Entry[>..] = [];
+    var b2: bank_statement::Balance[>..] = [];
+    var n2: bank_statement::Note[>..] = [];
+    let g = bank_statement::parse_mt940(out, lim, ropts, s2, e2, b2, n2);
+    if g.kind != 0 { print("FAIL mt940 reread ", bank_statement::kind_name(g.kind), " line ", g.line, " ", g.tag, " ", g.detail, "\n"); }
+    assert(g.kind == 0);
+    assert(s2.len == 1 && e2.len == 2 && b2.len == 3);
+    assert(s2[0].reference == "STMT001" && s2[0].account == "DE89370400440532013000");
+    assert(s2[0].number == "00001" && s2[0].sequence == "001");
+    assert(e2[0].amount.minor == 50000 && e2[0].mark == "C" && e2[0].bank_ref == "BANKREF1");
+    assert(e2[0].supplementary == "SUPPLEMENT" && e2[0].narrative == ens[0].narrative);
+    assert(e2[1].customer_ref == "CHK123" && e2[1].entry_date.year == 0);
+    assert(s2[0].available.amount.minor == 129950);
+    // A narrative line that starts with a colon would start a tag.
+    ens[0].narrative = "line one\n:20:EVIL";
+    var r1: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, r1).kind == bank_statement::F_SYNTAX);
+    ens[0].narrative = "a{b\x00";
+    var r2: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, r2).kind == bank_statement::F_SYNTAX);
+    // A byte outside the SWIFT set is a fault.
+    ens[0].narrative = "caf\xC3\xA9";
+    var r3: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, r3).kind == bank_statement::F_SYNTAX);
+    // A line over 65 characters, and more than six lines, are faults.
+    var long: u8[>..] = [];
+    bank_statement::put_num(long, 0, 66);
+    ens[0].narrative = long;
+    var r4: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, r4).kind == bank_statement::F_SYNTAX);
+    ens[0].narrative = "1\n2\n3\n4\n5\n6\n7";
+    var r5: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, r5).kind != 0);
+    ens[0].narrative = "ok";
+    // A reference that holds // is a fault.
+    ens[0].customer_ref = "A//B";
+    var r6: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, r6).kind == bank_statement::F_SYNTAX);
+    ens[0].customer_ref = "NONREF";
+    // Balances that do not add up are a fault.
+    ens[0].amount.minor = ens[0].amount.minor + 1;
+    var r7: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, r7).kind == bank_statement::F_BALANCE);
+    ens[0].amount.minor = ens[0].amount.minor - 1;
+    // A reference over 16 characters is a fault and is never cut.
+    sts[0].reference = "12345678901234567";
+    var r8: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, r8).kind != 0);
+}
+
+fn test_write_qif_lists() {
+    let text: const u8[:] = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNFood:Dining\nE\n^\n!Type:Class\nNHome\n^\n!Type:Bank\nD01/02/2025\nT-5.00\nPShop\n^\n";
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::QifOptions { date_order: bank_statement::DATE_MDY, .. };
+    var recs: bank_statement::QifRecord[>..] = [];
+    var spl: bank_statement::QifSplit[>..] = [];
+    var ext: bank_statement::QifField[>..] = [];
+    assert(bank_statement::parse_qif(text, lim, ropts, recs, spl, ext).kind == 0);
+    var out: u8[>..] = [];
+    let wopts = bank_statement::QifWriteOptions { date_order: 0 };
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, out).kind == 0);
+    assert(out == text);
+    // A section the writer does not write is a fault.
+    recs[0].section = bank_statement::Q_INVST;
+    var o2: u8[>..] = [];
+    assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, o2).kind == bank_statement::F_SYNTAX);
+}
+
 fn main() {
     test_hostile();
     test_hostile_qif();
@@ -2367,6 +2674,10 @@ fn main() {
     test_swift_86();
     test_swift_order();
     test_swift_hostile();
+    test_write_qif();
+    test_write_qif_lists();
+    test_write_ofx();
+    test_write_mt940();
     test_amount();
     test_amount_faults();
     test_exponent();
