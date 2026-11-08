@@ -60,9 +60,10 @@ struct Note {
 
 // Statement holds one statement or one interim report. The entries,
 // the balances and the notes are ranges of the arrays of the caller.
-// The opening and the closing balance are copies of the matching
-// lines of the balance range. The floor limits, the report time and the
-// totals belong to the interim report.
+// The opening, the closing, the available and the forward balance are
+// copies of the matching lines of the balance range. A balance the
+// statement has none of holds kind 0. The floor limits, the report
+// time and the totals belong to the interim report.
 struct Statement {
     reference: const u8[:],
     related_ref: const u8[:],
@@ -71,6 +72,8 @@ struct Statement {
     sequence: const u8[:],
     opening: Balance,
     closing: Balance,
+    available: Balance,
+    forward: Balance,
     entry_start: i32,
     entry_count: i32,
     balance_start: i32,
@@ -153,6 +156,7 @@ fn new_statement() -> Statement {
     return Statement {
         reference: "", related_ref: "", account: "", number: "", sequence: "",
         opening: no_balance(), closing: no_balance(),
+        available: no_balance(), forward: no_balance(),
         entry_start: 0, entry_count: 0, balance_start: 0, balance_count: 0, note_start: 0, note_count: 0,
         is_interim: false, balance_checked: false,
         floor: z, floor_mark: 0, floor2: z, floor2_mark: 0,
@@ -453,6 +457,13 @@ fn handle_field(tag: const u8[:], value: const u8[:], line_no: i64, S: State&, l
         if tag == "65" { kind = BAL_FORWARD; }
         let b, f = parse_balance(value, kind, false, line_no, tag);
         if f.kind != F_NONE { return f; }
+        if tag == "64" {
+            if statements[S.cur].available.kind != 0 { return fault(F_SYNTAX, line_no, 1, tag, "second closing available balance"); }
+            statements[S.cur].available = b;
+        } else {
+            // A second forward balance replaces the first.
+            statements[S.cur].forward = b;
+        }
         return push_balance(S, b, lim, line_no, tag, statements, balances);
     }
     if tag == "61" {

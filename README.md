@@ -14,7 +14,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add this to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.1.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.2.0";
 ```
 
 ## API
@@ -29,8 +29,9 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_qif(input, lim, opts, records, splits, extra)` | reads a QIF file; gives a `Fault` |
 | `split_category(l)` | splits an `L` value into name, sub-category, class and transfer account |
 | `parse_amount(text, exp, decimal, group)` | reads an amount into minor units; gives `Amount, Fault` |
-| `parse_number(text, decimal, group)` | reads a decimal into a mantissa and a scale; gives `i64, i32, Fault` |
-| `currency_exponent(code)` | gives the count of minor digits of an ISO 4217 code |
+| `parse_number(text, decimal, group)` | reads a decimal into a mantissa and a scale; the scale drops the zeros at the end of the decimal part; gives `i64, i32, Fault` |
+| `currency_exponent(code)` | gives the count of minor digits of an ISO 4217 code; 2 for a code the table does not hold |
+| `currency_known(code)` | tells whether a code sits in the ISO 4217 table |
 | `default_limits()` | gives the safe limits |
 | `kind_name(kind)` | gives the name of a fault kind |
 
@@ -38,21 +39,26 @@ Text fields are spans over the input, so the input must outlive the arrays.
 
 A statement starts at `:20:`. The reader accepts the blocks `{1:}` to `{5:}` and a bare list of tags.
 It reads these tags.
-They are `:20:`, `:21:`, `:25:`, `:28:`, `:28C:`, `:34F:`, `:13D:`, `:60F:`, `:60M:`, `:61:`,
-`:62F:`, `:62M:`, `:64:`, `:65:`, `:86:`, `:90D:`, `:90C:` and `:NS:`.
+The tags are `:20:`, `:21:`, `:25:`, `:28:`, `:28C:`, `:34F:`, `:13D:` and `:60F:`.
+They go on with `:60M:`, `:61:`, `:62F:`, `:62M:`, `:64:`, `:65:`, `:86:`, `:90D:`, `:90C:` and `:NS:`.
 
 | Type | Holds |
 |---|---|
-| `Statement` | reference, related reference, account, number, sequence, opening and closing balance, ranges of entries, balances and notes, and the MT942 fields |
+| `Statement` | reference, related reference, account, number, sequence, opening, closing, closing available and forward available balance, ranges of entries, balances and notes, and the MT942 fields |
 | `Entry` | value date, entry date, mark (`D`, `C`, `RD`, `RC`), funds code, amount, type id, customer reference, bank reference, supplementary detail and the raw `:86:` text |
 | `Balance` | kind (opening, closing, available, forward), credit flag, intermediate flag, date and amount |
 | `Note` | a `:NS:` field, or a `:86:` that belongs to no entry |
 | `Amount` | `minor`, `exp` and `currency` |
 
+The four balances of the statement are copies of the matching lines of the balance range.
+A statement that holds none of them holds kind 0 in the field.
+A second `:64:` is a fault. A second `:65:` replaces the value of the first.
+
 `Mt940Options` holds one flag. `skip_balance_check` is false by default.
 
 The check adds the opening balance and the entries. It compares the sum with the closing balance.
 A credit adds. A debit subtracts.
+The available and forward balances stay out of the check.
 
 A reversal of a credit (`RC`) subtracts. A reversal of a debit (`RD`) adds.
 A mismatch gives a fault of kind `F_BALANCE`. The fault holds both sums in `have` and `want`.
@@ -63,14 +69,40 @@ Its `:90D:` and `:90C:` totals must match the entries.
 ### QIF
 
 A line that starts with `!` opens a section. The reader knows these headers:
-`!Account`, `!Type:Bank`, `!Type:Cash`, `!Type:CCard`, `!Type:Oth A`, `!Type:Oth L`, `!Type:Invst`,
-`!Type:Port`, `!Type:Cat`, `!Type:Class`, `!Type:Security`, `!Type:Prices` and `!Type:Memorized`.
-The lines `!Option:AutoSwitch` and `!Clear:AutoSwitch` are read and ignored.
+`!Account`, `!Type:Bank`, `!Type:Cash`, `!Type:CCard`, `!Type:Oth A`, `!Type:Oth L` and `!Type:Oth S`.
+They go on with `!Type:Invst`, `!Type:Port`, `!Type:Invoice`, `!Type:Tax`, `!Type:Bill` and `!Type:Cat`.
+They end with `!Type:Budget`, `!Type:Class`, `!Type:Tag`, `!Type:Security`, `!Type:Prices` and `!Type:Memorized`.
 
-The typed sections give a `QifRecord` with date, amount, cleared mark, number, payee, memo, category,
-splits and the investment fields. The codes are `D`, `T`, `C`, `N`, `P`, `M`, `L`, `S`, `E`, `$`, `%`, `Y`, `I`, `Q` and `O`.
+The lines `!Option:AutoSwitch` and `!Clear:AutoSwitch` are read and ignored.
+The match takes any letter case. It takes a space instead of the colon after the word `type`,
+as in the `!type bank` form. It takes a header without the blank too, such as `!Type:OthA`.
+A header outside the list is a fault whose tag names the header of the file.
+
+The transaction sections give a `QifRecord`. They are Bank, Cash, CCard, Oth A, Oth L and Oth S.
+They are also Invst, Port, Invoice, Tax, Bill and Memorized.
+A record holds date, amount, cleared mark, number, payee, memo, category,
+splits and the investment fields.
+
+The codes are `D`, `T`, `U`, `C`, `N`, `P`, `M`, `L` and `F`.
+They go on with `S`, `E`, `$`, `%`, `Y`, `I`, `Q` and `O`.
 The other sections keep every line as a `QifField`. A code with no typed field also becomes a `QifField`.
 The reader drops no line.
+
+The amount of a record comes from the `U` code when the record holds one.
+Without a `U`, it comes from `T`. The order in the file does not matter. This is the rule of GnuCash.
+`amount_code` names the code that won, and `alt_amount` holds the value that lost.
+A money value that starts with `...` sets no amount; the line stays a field.
+
+The investment codes give exact numbers, never a float.
+`I` holds the price. `Q` holds the quantity. `O` holds the commission. The split `%` holds a percent.
+Each one comes back as a `Rational` with a numerator and a positive denominator,
+reduced to its smallest terms.
+
+The reader accepts a plain decimal with the marks of the file.
+It also accepts a whole fraction `1/2` and a mixed fraction `10 1/2`.
+The text of each value stays in `price_text`, `quantity_text`,
+`commission_text` and `percent_text`. The `F` code sets the `reimbursable` flag of the record
+and keeps its text.
 
 `QifOptions` holds four values. The zero value is the safe one.
 
@@ -107,13 +139,13 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **Fields are not checked against the SWIFT manual.** Node `@centrapay/swift-parser` fixes the width of each tag. An example is 16 characters for `:20:`. This package accepts a longer value. Real banks send one.
 - **Bank dialects are not interpreted.** Python `mt940` ships processors for four Dutch banks. This package splits a `:86:` text and leaves the meaning to the caller.
 - **There is no transcoding.** A byte above 127 passes through into the text. Node `@fin.cx/mt940` fixes the encoding of each field.
-- **The currency table is small.** It holds the 17 currencies with no minor digits and the 7 with three. Every other code has two.
-- **Only the listed QIF headers are known.** Another `!Type:` header gives a fault.
-- **The `U` code is kept as a field.** The amount of a record comes from `T`.
-- **Price, quantity, commission and percent stay as text.** `parse_number` reads them. A price in fractions, such as `10 1/2`, stays text.
-- **The `:64:` and `:65:` balances sit in the balance range.** The statement copies the opening and closing balance only.
-- **The most negative `i64` is not an amount.** The digits add up as a positive number. That value is an overflow fault.
+- **The QIF sections beyond the transactions keep no typed record.** They hold lines as `QifField` values. GnuCash gives each one a record of its own type.
+- **A long tail of zeros is a fault.** A decimal part with 19 or more zeros at the end faults.
 - **After a fault the arrays hold partial results.** Do not use them.
+
+The release before read the `U` code of a QIF record as a plain field.
+It kept only the text of the investment codes. A caller of `v0.1.0` who reads those fields
+must read the new typed fields.
 
 ## Security
 
@@ -124,7 +156,8 @@ Protections beyond the reference libraries:
 - **A tag outside the set is a fault.** Python `mt940` drops `:60M:`, `:62M:`, `:64:` and `:65:` without a word. Go `mmalcek/mt940` checks nothing.
 - **A statement that does not add up is a fault.** Python `mt940` has no balance check. The check is on by default.
 - **Amounts are exact.** Go `evmar/fin` reads a QIF amount through a float and gets cents wrong, as in `8.11`. Python `quiffen` strips every comma. This package checks the groups of a thousands mark and the count of decimals.
-- **Overflow is a fault.** An amount, a sum of entries or a count never wraps.
+- **The investment values are exact rationals.** Rust `qif_parser` reads the price, the quantity and the commission through a float. It loses digits. This package gives a numerator and a denominator and uses no float.
+- **Overflow is a fault.** An amount, a sum of entries or a count never wraps. The value range ends at the largest and the most negative 64-bit integer, and both are valid amounts.
 - **An ambiguous QIF date is a fault.** Rust `qif_parser` guesses the order. This package asks the caller, or reads the whole file.
 - **Every size has a limit.** The limits cover the input, the line, the field and the nesting of blocks. They also cover the counts of statements, entries, splits, records and fields. Python `mt940` and `quiffen` cap none of them. Python `bankstatementparser` caps the file size only. `default_limits()` holds safe values.
 - **A control byte is a fault.** A NUL byte never reaches a text field. A CR without an LF is a fault too.

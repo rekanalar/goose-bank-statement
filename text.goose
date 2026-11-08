@@ -36,3 +36,20 @@ fn ieq(a: const u8[:], b: const u8[:]) -> bool {
     }
     return true;
 }
+
+// ieq_nospace compares two texts without their letter case and without
+// their blanks, so "Oth A" and "otha" match the same name.
+fn ieq_nospace(a: const u8[:], b: const u8[:]) -> bool {
+    var i: i64 = 0;
+    var j: i64 = 0;
+    while i < a.len && j < b.len {
+        if a[i] == ' ' { i += 1; continue; }
+        if b[j] == ' ' { j += 1; continue; }
+        if lower(a[i]) != lower(b[j]) { return false; }
+        i += 1;
+        j += 1;
+    }
+    while i < a.len && a[i] == ' ' { i += 1; }
+    while j < b.len && b[j] == ' ' { j += 1; }
+    return i == a.len && j == b.len;
+}

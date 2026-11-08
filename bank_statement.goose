@@ -13,6 +13,7 @@ import fault;
 import text;
 import limits;
 import amount;
+import currency;
 import date;
 import mt940;
 import qif;

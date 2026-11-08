@@ -8,6 +8,7 @@ namespace bank_statement;
 import std;
 import fault;
 import text;
+import currency;
 
 // Amount holds money as minor units. The sign sits in minor. The exp is
 // the count of minor digits of the currency. The currency is a span over
@@ -19,15 +20,26 @@ struct Amount {
 }
 
 // currency_exponent gives the count of minor digits of an ISO 4217 code:
-// 0 for the zero digit currencies, 3 for the three digit ones, 2 for
-// the rest.
+// 0 for the currencies with no minor digits, 3 for the three digit ones,
+// 4 for CLF and UYW, 2 for the rest. The codes whose ISO minor unit is
+// not applicable have no minor unit, so they give 0. A code that the
+// ISO table does not hold gives 2.
 fn currency_exponent(code: const u8[:]) -> i32 {
-    if code.len != 3 { return 2; }
-    let zero = ["BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF"];
-    for z in zero { if code == z { return 0; } }
-    let three = ["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"];
-    for t in three { if code == t { return 3; } }
-    return 2;
+    let i = currency_index(code);
+    if i < 0 { return 2; }
+    return CURRENCY_EXPONENTS[i];
+}
+
+// signed_magnitude turns a magnitude with a sign back into an i64. A
+// magnitude above the signed range gives false.
+fn signed_magnitude(mag: u64, neg: bool) -> i64, bool {
+    if neg {
+        if mag == 9223372036854775808 { return -9223372036854775808, true; }
+        if mag > 9223372036854775808 { return 0, false; }
+        return -(mag as i64), true;
+    }
+    if mag > 9223372036854775807 { return 0, false; }
+    return mag as i64, true;
 }
 
 // parse_number reads a decimal number. It gives the digits as an i64
@@ -54,10 +66,14 @@ fn parse_number(text: const u8[:], decimal: u8, group: u8) -> i64, i32, Fault {
         s = s[1..];
     }
     if s.len == 0 { return 0, 0, fault(F_AMOUNT, 0, 0, "", "no digits"); }
-    let limit: i64 = 9223372036854775807;
-    var acc: i64 = 0;
+    // The magnitude adds up in a u64, so the most negative i64 fits.
+    // A negative sign allows one unit more than a positive one.
+    var limit: u64 = 9223372036854775807;
+    if neg { limit = 9223372036854775808; }
+    var acc: u64 = 0;
     var seen_dec = false;
     var scale: i32 = 0;
+    var tz = 0;           // trailing zeros of the decimal part, held back
     var digits = 0;
     var run = 0;          // digits since the last thousands mark
     var in_group = false; // a thousands mark was read
@@ -65,9 +81,27 @@ fn parse_number(text: const u8[:], decimal: u8, group: u8) -> i64, i32, Fault {
     while i < s.len {
         let c = s[i];
         if is_digit(c) {
-            let d = (c - '0');
-            if acc > (limit - d) / 10 { return 0, 0, fault(F_OVERFLOW, 0, 0, "", "amount does not fit in 64 bits"); }
-            acc = acc * 10 + d;
+            let d: u64 = c - '0';
+            // A zero at the end of the decimal part waits. A later
+            // digit multiplies over it, so 8.100 and 8.1 give the
+            // same mantissa and the largest value still fits.
+            if seen_dec && d == 0 && acc > 0 {
+                tz += 1;
+                if tz > 18 { return 0, 0, fault(F_OVERFLOW, 0, 0, "", "amount does not fit in 64 bits"); }
+            } else {
+                var p: u64 = 1;
+                var k = 0;
+                while k <= tz { p = p * 10; k += 1; }
+                var over = false;
+                if p == 1 {
+                    over = acc > limit - d;
+                } else {
+                    over = acc > (limit - d) / p;
+                }
+                if over { return 0, 0, fault(F_OVERFLOW, 0, 0, "", "amount does not fit in 64 bits"); }
+                acc = acc * p + d;
+                tz = 0;
+            }
             digits += 1;
             run += 1;
             if seen_dec { scale += 1; }
@@ -89,8 +123,10 @@ fn parse_number(text: const u8[:], decimal: u8, group: u8) -> i64, i32, Fault {
     }
     if digits == 0 { return 0, 0, fault(F_AMOUNT, 0, 0, "", "no digits"); }
     if in_group && !seen_dec && run != 3 { return 0, 0, fault(F_AMOUNT, 0, 0, "", "thousands group is not three digits"); }
-    if neg { acc = -acc; }
-    return acc, scale, no_fault();
+    scale -= tz as i32;
+    let m, ok = signed_magnitude(acc, neg);
+    if !ok { return 0, 0, fault(F_OVERFLOW, 0, 0, "", "amount does not fit in 64 bits"); }
+    return m, scale, no_fault();
 }
 
 // parse_amount reads an amount in a currency with exp minor digits. It
