@@ -16,7 +16,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.5.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.6.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -349,6 +349,28 @@ let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
 if f.kind != 0 { print(bank_statement::kind_name(f.kind), " at line ", f.line); }
 ```
 
+#### The bank dialects of the :86: field
+
+Four Dutch banks write named values into the `:86:` text. Python `mt940` 0.8.1 is the only mature library that reads them.
+`parse_dialect(kind, text, limits, values, buffer)` reads one `:86:` text. It fills an array of `DialectValue` with a `key` and a `value`.
+The names keep the names of the Python library.
+
+| Kind | Keys |
+|---|---|
+| `D_RABOBANK` | `marf`, `eref`, `pref`, `trcd`, `benm`, `ordp`, `name`, `id`, `addr`, `remi`, `cdtrref`, `csid`, `isdt`, `rtrn` |
+| `D_ABN_AMRO` | `account`, `trtp`, `iban`, `bic`, `csid`, `name`, `remi`, `eref`, `ordp`, `benm` |
+| `D_ING` | `rtrn`, `eref`, `pref`, `marf`, `csid`, `purp`, and the parts `cntp.account_number`, `cntp.bic`, `cntp.name`, `cntp.city`, `remi.code`, `remi.issuer`, `remi.remittance_info`, `ultc.name`, `ultc.id`, `ultd.name`, `ultd.id` |
+| `D_REGIOBANK` | `account_number`, `name`, `address`, `iban`, `remittance_info`, `description`, `reference` |
+
+A text of another bank gives no value and no fault. An unknown kind is a fault.
+
+
+The count of values has the limit `max_fields`. The text has the limit `max_field`.
+
+The values point into the text or into the buffer. Both must outlive the values.
+The ABN AMRO account number loses its dots, so it goes into the buffer.
+This package keeps scanning the tags after the account number. Python `mt940` stops there, so this package may give more values.
+
 ## Limits
 
 This package is below `v1.0.0`. These gaps against the reference libraries stay open.
@@ -358,7 +380,7 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **There is no writer.** `ofxtools` writes OFX and GnuCash writes QIF.
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
-- **Bank dialects are not interpreted.** Python `mt940` ships processors for four Dutch banks. This package splits a `:86:` text and leaves the meaning to the caller.
+- **Only four bank dialects exist.** The package reads Rabobank, ABN AMRO, ING and Regiobank. Python `mt940` 5.1.3 also reads mBank, ASN Bank and GLS. A caller reads other banks from the `:86:` text.
 - **There is no transcoding.** A byte above 127 passes through into the text. Node `@fin.cx/mt940` fixes the encoding of each field.
 - **The OFX reader reads no security list and no profile.** The
   securities of an investment statement come as positions only.
@@ -405,6 +427,7 @@ Protections beyond the reference libraries:
 
 Risks that stay:
 
+- **The values of a dialect are untrusted text.** A bank or a payer writes them. Escape them as you escape a remittance.
 - **The text of a remittance or a party name is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.
 
 - **The text of a narrative, a payee or a memo is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.

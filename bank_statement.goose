@@ -20,6 +20,7 @@ import currency;
 import date;
 import mt940;
 import swift;
+import dialect;
 import qif;
 import sgml;
 import ofx;
