@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.27.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.28.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -177,6 +177,8 @@ The fields of the statement come from these elements.
 | `reporting_from`, `reporting_to` | `RptgSeq`, through `FrToSeq/From` and `FrToSeq/To`, or `FrSeq` and `ToSeq` |
 | `reporting_source` | `RptgSrc`, through `Cd` or `Prtry` |
 | `page_number`, `last_page` | `StmtPgntn/PgNb` and `StmtPgntn/LastPgInd` |
+| `all_count`, `all_total`, `has_all_total` | `TxsSummry/TtlNtries/NbOfNtries` and `TxsSummry/TtlNtries/Sum` |
+| `net_amount`, `has_net`, `net_credit` | `TxsSummry/TtlNtries/TtlNetNtry` |
 
 The type code of a balance gives its kind. The code text stays on every balance in `code`.
 
@@ -666,7 +668,7 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 
 - **`parse_camt` takes the header as a parameter now.** The old form was `parse_camt(input, lim, opts, statements, entries, balances, buf)`. The new form adds `header` after `opts`. A caller binds a `CamtHeader` and passes it.
 - **The camt reader reads the group header and the statements.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the summary. It reads the application header too.
-- **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
+- **The total block sums take the account currency.** The sums of `TtlNtries` hold no currency of their own. When the account names none, the reader keeps the count.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **The investment statement, the sign-on request and bill pay have no typed record.** The element tree writer writes them. It checks each element against the rules. Python `ofxtools` and Go `ofxgo` model each element.
 - **The element rule check has blind spots.** It does not check how many times an element may repeat. It does not check two aggregates that exclude each other. A row with no rule and a private `X` aggregate stay unchecked inside.

@@ -807,6 +807,7 @@ const CAMT53: const u8[:] = """
         <Sts><Cd>PDNG</Cd></Sts>
         <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd>
       </Ntry>
+      <TxsSummry><TtlNtries><NbOfNtries>3</NbOfNtries><Sum>700.00</Sum><TtlNetNtry><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></TtlNetNtry></TtlNtries></TxsSummry>
     </Stmt>
   </BkToCstmrStmt>
 </Document>
@@ -1382,6 +1383,8 @@ fn test_camt_statement() {
     assert(st.period_to.year == 2025 && st.period_to.month == 1 && st.period_to.day == 31);
     assert(st.copy_duplicate == "CCPY");
     assert(st.reporting_from == "11" && st.reporting_to == "78");
+    assert(st.has_all_total && st.all_count == 3 && st.all_total.minor == 70000 && st.all_total.currency == "EUR");
+    assert(st.has_net && st.net_amount.minor == 10000 && st.net_credit);
     assert(st.reporting_source == "MLST");
     assert(st.page_number == "2" && st.last_page);
     // The balances.

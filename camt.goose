@@ -652,8 +652,46 @@ fn camt_summary(doc: xml::Doc&, id: i32, ccy: const u8[:], buf: u8[>..]&, statem
     if s < 0 { return no_fault(); }
     let tag: const u8[:] = "TxsSummry";
     // A summary that holds one block for all the entries gives the sum
-    // of every entry without a sign. It has no place in the credit and
-    // the debit totals, so the reader ignores it.
+    // of every entry without a sign. The currency of the account gives
+    // the sum its currency.
+    let all = c_child(doc, s, "TtlNtries");
+    if all >= 0 {
+        let cnt, has = c_text(doc, all, "NbOfNtries", buf);
+        if has {
+            let n, ok = digits(cnt);
+            if !ok { return fault(F_TOTAL, 0, 0, tag, "the number of entries in the summary is not a number"); }
+            statements[cur].all_count = n;
+        }
+        // The signed net entry of the block.
+        let net = c_child(doc, all, "TtlNetNtry");
+        if net >= 0 {
+            let amt = c_child(doc, net, "Amt");
+            if amt >= 0 {
+                var a: Amount;
+                var f: Fault;
+                let at, hasat = xml::attr_lookup(doc, doc.nodes[amt], "Ccy");
+                if hasat && at.len == 3 {
+                    a, f = camt_amount_of(doc, amt, tag, buf);
+                } else {
+                    a, f = camt_amount_ccy(doc, amt, tag, ccy, buf);
+                }
+                if f.kind != F_NONE { return f; }
+                statements[cur].net_amount = a;
+                statements[cur].has_net = true;
+            }
+            let dir, hasd = c_text(doc, net, "CdtDbtInd", buf);
+            if hasd && dir == "CRDT" { statements[cur].net_credit = true; }
+        }
+        let sum = c_child(doc, all, "Sum");
+        if sum >= 0 && ccy.len == 3 {
+            // The sum has no currency of its own. When the account
+            // names none, the count alone stays.
+            let a, f = camt_amount_ccy(doc, sum, tag, ccy, buf);
+            if f.kind != F_NONE { return f; }
+            statements[cur].all_total = a;
+            statements[cur].has_all_total = true;
+        }
+    }
     let cdt = c_child(doc, s, "TtlCdtNtries");
     let dbt = c_child(doc, s, "TtlDbtNtries");
     if dbt >= 0 {
