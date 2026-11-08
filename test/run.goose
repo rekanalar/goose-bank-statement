@@ -703,8 +703,15 @@ fn time_parse(n: i64) -> i64 {
 
 // A doubled input must not take more than about twice as long.
 fn test_linear_time() {
-    let a = time_parse(20000);
-    let b = time_parse(40000);
+    // The best of three runs ignores a pause of a busy machine.
+    var a = time_parse(20000);
+    var b = time_parse(40000);
+    for r in 2 {
+        let a2 = time_parse(20000);
+        let b2 = time_parse(40000);
+        if a2 < a { a = a2; }
+        if b2 < b { b = b2; }
+    }
     if b > 3 * a + 30000000 { print("FAIL time ", a, " ns for 20000, ", b, " ns for 40000\n"); }
     assert(b <= 3 * a + 30000000);
 }
