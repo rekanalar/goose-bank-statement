@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.7.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.8.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -60,7 +60,7 @@ They go on with `:60M:`, `:61:`, `:62F:`, `:62M:`, `:64:`, `:65:`, `:86:`, `:90D
 | Type | Holds |
 |---|---|
 | `Statement` | reference, related reference, account, number, sequence, opening, closing, closing available and forward available balance, ranges of entries, balances and notes, and the MT942 fields |
-| `Entry` | value date, entry date, mark (`D`, `C`, `RD`, `RC`), funds code, amount, type id, customer reference, bank reference, supplementary detail and the raw `:86:` text |
+| `Entry` | value date, entry date, mark (`D`, `C`, `RD`, `RC`), funds code, amount, type id, customer reference, bank reference, supplementary detail, the raw `:86:` text and the OFX member `ofx` |
 | `Balance` | kind (opening, closing, available, forward), credit flag, intermediate flag, date and amount |
 | `Note` | a `:NS:` field, or a `:86:` that belongs to no entry |
 | `Amount` | `minor`, `exp` and `currency` |
@@ -292,6 +292,31 @@ let f = bank_statement::parse_ofx(text, lim, opts, sts, ens, bals, notes, buf);
 if f.kind != 0 { print(bank_statement::kind_name(f.kind), " in ", f.tag); }
 ```
 
+#### The extra fields of an OFX transaction
+
+The member `ofx` of an `Entry` holds the OFX fields that no other format has.
+Every other reader gives it the empty value from `no_ofx()`.
+
+| Member | OFX element |
+|---|---|
+| `user_date` | `DTUSER` |
+| `correct_ref`, `correct_action` | `CORRECTFITID`, `CORRECTACTION` (`REPLACE` or `DELETE`) |
+| `payee_id`, `ext_name` | `PAYEEID`, `EXTDNAME` |
+| `has_payee`, `payee` | the `PAYEE` aggregate: name, three address lines, city, state, postal code, country, phone |
+| `rate_kind`, `rate`, `rate_text`, `rate_symbol` | `CURRENCY` (kind `C`) or `ORIGCURRENCY` (kind `O`) with `CURRATE` and `CURSYM` |
+
+The rate is an exact rational. Its text stays in `rate_text`. A rate of zero is a fault.
+`CURRENCY` gives the currency of the amount. The reader then reads `TRNAMT` with the minor digits of that currency.
+`ORIGCURRENCY` leaves the currency of the statement.
+
+The reader refuses `NAME` together with `PAYEE`. It refuses `CURRENCY` together with `ORIGCURRENCY`.
+The writer writes the fields in the order of the OFX specification and checks the limits of Python `ofxtools`.
+
+Those limits are `PAYEEID` 12, `EXTDNAME` 100, `CORRECTFITID` 255 and the `PAYEE` fields 32, 5 and 11.
+A `PAYEE` needs its name, first address line, city, state, postal code and phone.
+The country is three capital letters. The package holds no table of country codes.
+A correction needs both `CORRECTFITID` and `CORRECTACTION`.
+
 ### QIF
 
 A line that starts with `!` opens a section. The reader knows these headers:
@@ -434,7 +459,7 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The camt reader reads the statements, not the whole message.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message.
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
-- **The writers write what the reader types hold.** The reader keeps no `DTUSER`, `CORRECTFITID`, `CORRECTACTION`, `PAYEEID`, `CURRENCY` or `ORIGCURRENCY`. So the OFX writer writes none of them. It writes no investment statement, no sign-on request, no bill pay and no payee list.
+- **The writers write what the reader types hold.** The OFX code keeps no `SIC`, `BANKACCTTO`, `CCACCTTO`, `INV401KSOURCE` and `IMAGEDATA`. The writer writes no investment statement, no sign-on request, no bill pay and no QIF payee list.
 - **The MT940 writer writes no interim report.** It writes no MT942.
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.

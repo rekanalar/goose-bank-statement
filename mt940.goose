@@ -41,6 +41,47 @@ struct Balance {
 // one of D, C, RD and RC. The funds code is zero when absent. The
 // entry date has year 0 when absent. The narrative is the raw text of the
 // :86: field, with its line ends. split_narrative reads it.
+// OfxPayee holds the PAYEE aggregate of an OFX transaction.
+struct OfxPayee {
+    name: const u8[:],
+    addr1: const u8[:],
+    addr2: const u8[:],
+    addr3: const u8[:],
+    city: const u8[:],
+    state: const u8[:],
+    postal_code: const u8[:],
+    country: const u8[:],
+    phone: const u8[:],
+}
+
+// OfxEntry holds the OFX fields of a transaction that no other format
+// has. The rate_kind is C for a CURRENCY aggregate, O for an ORIGCURRENCY
+// aggregate and zero for none. The rate is exact; its text stays in
+// rate_text.
+struct OfxEntry {
+    user_date: Date,
+    correct_ref: const u8[:],
+    correct_action: const u8[:],
+    payee_id: const u8[:],
+    ext_name: const u8[:],
+    has_payee: bool,
+    payee: OfxPayee,
+    rate_kind: u8,
+    rate: Rational,
+    rate_text: const u8[:],
+    rate_symbol: const u8[:],
+}
+
+// no_ofx gives the OFX fields of an entry that has none.
+fn no_ofx() -> OfxEntry {
+    return OfxEntry {
+        user_date: no_date(), correct_ref: "", correct_action: "", payee_id: "", ext_name: "",
+        has_payee: false,
+        payee: OfxPayee { name: "", addr1: "", addr2: "", addr3: "", city: "", state: "", postal_code: "", country: "", phone: "" },
+        rate_kind: 0, rate: Rational { num: 0, den: 1 }, rate_text: "", rate_symbol: "",
+    };
+}
+
 struct Entry {
     value_date: Date,
     entry_date: Date,
@@ -76,6 +117,7 @@ struct Entry {
     total: Rational,
     has_total: bool,
     total_text: const u8[:],
+    ofx: OfxEntry,
 }
 
 // Note holds a statement level text: a :NS: field or a :86: that does
@@ -246,7 +288,7 @@ fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64, check: bool) 
         units: Rational { num: 0, den: 1 }, has_units: false, units_text: "",
         unit_price: Rational { num: 0, den: 1 }, has_unit_price: false, unit_price_text: "",
         commission: Rational { num: 0, den: 1 }, has_commission: false, commission_text: "",
-        total: Rational { num: 0, den: 1 }, has_total: false, total_text: "",
+        total: Rational { num: 0, den: 1 }, has_total: false, total_text: "", ofx: no_ofx(),
     };
     let head, rest = first_line(value);
     let tag: const u8[:] = "61";

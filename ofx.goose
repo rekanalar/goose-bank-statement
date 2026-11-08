@@ -303,6 +303,85 @@ fn ofx_tranlist(nodes: SgmlNode[>..]&, id: i32, ccy: const u8[:], lim: Limits&,
     return no_fault();
 }
 
+// child_text gives the text of the named child, or an empty text.
+fn child_text(nodes: SgmlNode[>..]&, id: i32, name: const u8[:], buf: u8[>..]&) -> const u8[:] {
+    let c = sgml_child(nodes, id, name);
+    if c < 0 { return ""; }
+    return sgml_text_of(nodes, c, buf);
+}
+
+// ofx_rate reads a CURRENCY or ORIGCURRENCY aggregate into x.
+fn ofx_rate(nodes: SgmlNode[>..]&, agg: i32, kind: u8, buf: u8[>..]&, x: OfxEntry) -> OfxEntry, Fault {
+    var out = x;
+    let tag: const u8[:] = "CURRATE";
+    let text = child_text(nodes, agg, "CURRATE", buf);
+    let sym = child_text(nodes, agg, "CURSYM", buf);
+    if text.len == 0 { return out, fault(F_AMOUNT, 0, 0, tag, "the rate is missing"); }
+    let r, rf = ofx_ratio(text);
+    if rf.kind != F_NONE { return out, with_pos(rf, 0, tag); }
+    if r.num == 0 { return out, fault(F_AMOUNT, 0, 0, tag, "the rate is zero"); }
+    if sym.len != 3 || currency_index(sym) < 0 {
+        return out, fault(F_AMOUNT, 0, 0, "CURSYM", "the currency is not a known code");
+    }
+    out.rate_kind = kind;
+    out.rate = r;
+    out.rate_text = text;
+    out.rate_symbol = sym;
+    return out, no_fault();
+}
+
+// ofx_extras reads the OFX fields of a STMTTRN that no other format has.
+fn ofx_extras(nodes: SgmlNode[>..]&, id: i32, buf: u8[>..]&) -> OfxEntry, Fault {
+    var x = no_ofx();
+    let du = sgml_child(nodes, id, "DTUSER");
+    if du >= 0 {
+        let d, ok = ofx_date(sgml_text_of(nodes, du, buf));
+        if !ok { return x, fault(F_DATE, 0, 0, "DTUSER", "the date is not OFX form"); }
+        x.user_date = d;
+    }
+    x.correct_ref = child_text(nodes, id, "CORRECTFITID", buf);
+    x.correct_action = child_text(nodes, id, "CORRECTACTION", buf);
+    if x.correct_action.len > 0 && x.correct_action != "REPLACE" && x.correct_action != "DELETE" {
+        return x, fault(F_SYNTAX, 0, 0, "CORRECTACTION", "the action is not REPLACE or DELETE");
+    }
+    x.payee_id = child_text(nodes, id, "PAYEEID", buf);
+    x.ext_name = child_text(nodes, id, "EXTDNAME", buf);
+    let py = sgml_child(nodes, id, "PAYEE");
+    if py >= 0 {
+        x.has_payee = true;
+        x.payee.name = child_text(nodes, py, "NAME", buf);
+        x.payee.addr1 = child_text(nodes, py, "ADDR1", buf);
+        x.payee.addr2 = child_text(nodes, py, "ADDR2", buf);
+        x.payee.addr3 = child_text(nodes, py, "ADDR3", buf);
+        x.payee.city = child_text(nodes, py, "CITY", buf);
+        x.payee.state = child_text(nodes, py, "STATE", buf);
+        x.payee.postal_code = child_text(nodes, py, "POSTALCODE", buf);
+        x.payee.country = child_text(nodes, py, "COUNTRY", buf);
+        x.payee.phone = child_text(nodes, py, "PHONE", buf);
+    }
+    let cu = sgml_child(nodes, id, "CURRENCY");
+    let oc = sgml_child(nodes, id, "ORIGCURRENCY");
+    if cu >= 0 && oc >= 0 {
+        return x, fault(F_SYNTAX, 0, 0, "STMTTRN", "the entry holds CURRENCY and ORIGCURRENCY together");
+    }
+    if cu >= 0 {
+        let y, f = ofx_rate(nodes, cu, 'C', buf, x);
+        return y, f;
+    }
+    if oc >= 0 {
+        let y, f = ofx_rate(nodes, oc, 'O', buf, x);
+        return y, f;
+    }
+    return x, no_fault();
+}
+
+// ofx_trnamt reads TRNAMT. A CURRENCY aggregate gives the currency of
+// the amount; else the statement gives it.
+fn ofx_trnamt(nodes: SgmlNode[>..]&, amt: i32, x: OfxEntry, ccy: const u8[:], buf: u8[>..]&) -> Amount, Fault {
+    if x.rate_kind == 'C' { return ofx_amount_of(nodes, amt, "STMTTRN", x.rate_symbol, buf); }
+    return ofx_amount_of(nodes, amt, "STMTTRN", ccy, buf);
+}
+
 // ofx_stmttrn reads one STMTTRN into an entry. The sign of TRNAMT is
 // the mark: a debit is negative.
 fn ofx_stmttrn(nodes: SgmlNode[>..]&, id: i32, ccy: const u8[:], lim: Limits&,
@@ -313,9 +392,12 @@ fn ofx_stmttrn(nodes: SgmlNode[>..]&, id: i32, ccy: const u8[:], lim: Limits&,
     // The amount and the mark.
     let amt = sgml_child(nodes, id, "TRNAMT");
     if amt < 0 { return fault(F_AMOUNT, 0, 0, tag, "the entry has no amount"); }
-    let a, af = ofx_amount_of(nodes, amt, tag, ccy, buf);
+    let x, xf = ofx_extras(nodes, id, buf);
+    if xf.kind != F_NONE { return xf; }
+    let a, af = ofx_trnamt(nodes, amt, x, ccy, buf);
     if af.kind != F_NONE { return af; }
     e.amount = a;
+    e.ofx = x;
     if a.minor < 0 { e.mark = "D"; } else { e.mark = "C"; }
     // The dates.
     let dp = sgml_child(nodes, id, "DTPOSTED");
@@ -400,7 +482,7 @@ fn new_entry(cur: const u8[:]) -> Entry {
         units: r, has_units: false, units_text: "",
         unit_price: r, has_unit_price: false, unit_price_text: "",
         commission: r, has_commission: false, commission_text: "",
-        total: r, has_total: false, total_text: "",
+        total: r, has_total: false, total_text: "", ofx: no_ofx(),
     };
 }
 

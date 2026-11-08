@@ -2624,6 +2624,149 @@ fn test_write_qif_lists() {
     assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, o2).kind == bank_statement::F_SYNTAX);
 }
 
+const OFX_EXTRA: const u8[:] = """
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:NONE
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX><SIGNONMSGSRSV1><SONRS><STATUS><CODE>0<SEVERITY>INFO</STATUS><DTSERVER>20200101120000<LANGUAGE>ENG</SONRS></SIGNONMSGSRSV1>
+<BANKMSGSRSV1><STMTTRNRS><TRNUID>7<STATUS><CODE>0<SEVERITY>INFO</STATUS>
+<STMTRS><CURDEF>USD<BANKACCTFROM><BANKID>111111111<ACCTID>999999<ACCTTYPE>SAVINGS</BANKACCTFROM>
+<BANKTRANLIST><DTSTART>20200101<DTEND>20200131
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20200105<DTUSER>20200104<TRNAMT>-5000<FITID>A1<CORRECTFITID>A0<CORRECTACTION>REPLACE<PAYEEID>P77
+<PAYEE><NAME>Cafe &amp; Bar<ADDR1>1 Main St<ADDR2>Floor 2<CITY>Paris<STATE>IDF<POSTALCODE>75001<COUNTRY>FRA<PHONE>0102030405</PAYEE>
+<EXTDNAME>Cafe and Bar, Paris<MEMO>lunch<CURRENCY><CURRATE>0.0091<CURSYM>JPY</CURRENCY></STMTTRN>
+<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20200106<TRNAMT>10.50<FITID>A2<NAME>Bob<ORIGCURRENCY><CURRATE>1,25<CURSYM>EUR</ORIGCURRENCY></STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL><BALAMT>100.00<DTASOF>20200131</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>
+""";
+
+fn extra_equal(a: bank_statement::Entry, b: bank_statement::Entry) {
+    let x = a.ofx;
+    let y = b.ofx;
+    assert(x.user_date.day == y.user_date.day && x.user_date.year == y.user_date.year);
+    assert(x.correct_ref == y.correct_ref && x.correct_action == y.correct_action);
+    assert(x.payee_id == y.payee_id && x.ext_name == y.ext_name);
+    assert(x.has_payee == y.has_payee);
+    assert(x.payee.name == y.payee.name && x.payee.addr2 == y.payee.addr2 && x.payee.country == y.payee.country);
+    assert(x.payee.phone == y.payee.phone && x.payee.postal_code == y.payee.postal_code);
+    assert(x.rate_kind == y.rate_kind && x.rate.num == y.rate.num && x.rate.den == y.rate.den);
+    assert(x.rate_symbol == y.rate_symbol);
+}
+
+fn test_ofx_extra() {
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(OFX_EXTRA, lim, ropts, sts, ens, bals, notes, buf);
+    if f.kind != 0 { print("FAIL ofx extra ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(ens.len == 2);
+    let x = ens[0].ofx;
+    assert(x.user_date.year == 2020 && x.user_date.month == 1 && x.user_date.day == 4);
+    assert(x.correct_ref == "A0" && x.correct_action == "REPLACE" && x.payee_id == "P77");
+    assert(x.ext_name == "Cafe and Bar, Paris");
+    assert(x.has_payee && x.payee.name == "Cafe & Bar" && x.payee.city == "Paris" && x.payee.country == "FRA");
+    assert(ens[0].counter_name == "Cafe & Bar");
+    // CURRENCY gives the currency and the exponent of the amount.
+    assert(x.rate_kind == 'C' && x.rate.num == 91 && x.rate.den == 10000 && x.rate_symbol == "JPY");
+    assert(ens[0].amount.currency == "JPY" && ens[0].amount.exp == 0 && ens[0].amount.minor == -5000);
+    // ORIGCURRENCY leaves the currency of the statement.
+    let y = ens[1].ofx;
+    assert(y.rate_kind == 'O' && y.rate.num == 5 && y.rate.den == 4 && y.rate_symbol == "EUR");
+    assert(ens[1].amount.currency == "USD" && ens[1].amount.minor == 1050);
+    assert(!y.has_payee && y.user_date.year == 0);
+    // Round trip in both forms.
+    var v = 0;
+    while v < 2 {
+        var o = ofx_wopts(102);
+        if v == 1 { o = ofx_wopts(203); o.indent = true; }
+        var out: u8[>..] = [];
+        let w = bank_statement::write_ofx(sts, ens, notes, o, lim, out);
+        if w.kind != 0 { print("FAIL write extra ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
+        assert(w.kind == 0);
+        assert(find(out, "Cafe &amp; Bar") > 0);
+        var s2: bank_statement::Statement[>..] = [];
+        var e2: bank_statement::Entry[>..] = [];
+        var b2: bank_statement::Balance[>..] = [];
+        var n2: bank_statement::Note[>..] = [];
+        var u2: u8[>..] = [];
+        let g = bank_statement::parse_ofx(out, lim, ropts, s2, e2, b2, n2, u2);
+        if g.kind != 0 { print("FAIL reread extra ", bank_statement::kind_name(g.kind), " ", g.tag, " ", g.detail, "\n"); }
+        assert(g.kind == 0);
+        assert(e2.len == 2);
+        extra_equal(ens[0], e2[0]);
+        extra_equal(ens[1], e2[1]);
+        assert(e2[0].amount.currency == "JPY" && e2[0].amount.minor == -5000);
+        v += 1;
+    }
+    // Refusals.
+    let wo = ofx_wopts(102);
+    ens[0].ofx.correct_action = "";
+    var r1: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r1).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.correct_action = "REPLACE";
+    ens[0].ofx.payee_id = "1234567890123";
+    var r2: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r2).kind == bank_statement::F_LIMIT);
+    ens[0].ofx.payee_id = "P77";
+    ens[0].ofx.payee.country = "fr";
+    var r3: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r3).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.payee.country = "FRA";
+    ens[0].ofx.payee.city = "";
+    var r4: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r4).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.payee.city = "Paris";
+    ens[1].ofx.rate_text = "1.30";
+    var r5: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r5).kind == bank_statement::F_AMOUNT);
+    ens[1].ofx.rate_text = "1,25";
+    ens[1].ofx.rate_symbol = "ZZZ";
+    var r6: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r6).kind == bank_statement::F_AMOUNT);
+    ens[1].ofx.rate_symbol = "EUR";
+    ens[0].ofx.ext_name = "x\ny";
+    var r7: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r7).kind == bank_statement::F_SYNTAX);
+}
+
+fn ofx_kind(extra: const u8[:]) -> i32 {
+    var text: u8[>..] = [];
+    for c in "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\nSECURITY:NONE\nENCODING:USASCII\nCHARSET:NONE\nCOMPRESSION:NONE\nOLDFILEUID:NONE\nNEWFILEUID:NONE\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD<BANKACCTFROM><BANKID>1<ACCTID>2<ACCTTYPE>CHECKING</BANKACCTFROM><BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20200101<TRNAMT>-1<FITID>X" { text.push(c); }
+    for c in extra { text.push(c); }
+    for c in "</STMTTRN></BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>" { text.push(c); }
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    return bank_statement::parse_ofx(text, lim, ropts, sts, ens, bals, notes, buf).kind;
+}
+
+fn test_ofx_extra_faults() {
+    assert(ofx_kind("") == 0);
+    assert(ofx_kind("<CORRECTACTION>MAYBE") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<DTUSER>2020xx01") == bank_statement::F_DATE);
+    assert(ofx_kind("<NAME>A<PAYEE><NAME>B</PAYEE>") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<CURRENCY><CURRATE>1<CURSYM>EUR</CURRENCY><ORIGCURRENCY><CURRATE>1<CURSYM>EUR</ORIGCURRENCY>") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<CURRENCY><CURRATE>0<CURSYM>EUR</CURRENCY>") == bank_statement::F_AMOUNT);
+    assert(ofx_kind("<CURRENCY><CURRATE>1<CURSYM>ZZZ</CURRENCY>") == bank_statement::F_AMOUNT);
+    assert(ofx_kind("<CURRENCY><CURSYM>EUR</CURRENCY>") == bank_statement::F_AMOUNT);
+}
+
 fn main() {
     test_hostile();
     test_hostile_qif();
@@ -2678,6 +2821,8 @@ fn main() {
     test_write_qif_lists();
     test_write_ofx();
     test_write_mt940();
+    test_ofx_extra();
+    test_ofx_extra_faults();
     test_amount();
     test_amount_faults();
     test_exponent();

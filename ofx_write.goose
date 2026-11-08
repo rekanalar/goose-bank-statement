@@ -208,16 +208,96 @@ fn date_key(d: Date) -> i64 {
     return (d.year as i64) * 10000 + (d.month as i64) * 100 + (d.day as i64);
 }
 
+// opt_leaf writes a leaf when the text is not empty.
+fn opt_leaf(out: u8[>..]&, w: OfxForm, tag: const u8[:], value: const u8[:], max: i64,
+            depth: i64, lim: Limits&) -> Fault {
+    if value.len == 0 { return no_fault(); }
+    return leaf(out, w, tag, value, max, depth, lim);
+}
+
+// write_payee writes a PAYEE aggregate. The name, the first address
+// line, the city, the state, the postal code and the phone are required.
+fn write_payee(out: u8[>..]&, w: OfxForm, p: OfxPayee, depth: i64, lim: Limits&) -> Fault {
+    if p.country.len > 0 && (p.country.len != 3 || !is_upper(p.country[0]) || !is_upper(p.country[1]) || !is_upper(p.country[2])) {
+        return fault(F_SYNTAX, 0, 0, "COUNTRY", "the country is not three capital letters");
+    }
+    open_tag(out, w, "PAYEE", depth);
+    var f = leaf(out, w, "NAME", p.name, 32, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = leaf(out, w, "ADDR1", p.addr1, 32, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "ADDR2", p.addr2, 32, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "ADDR3", p.addr3, 32, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = leaf(out, w, "CITY", p.city, 32, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = leaf(out, w, "STATE", p.state, 5, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = leaf(out, w, "POSTALCODE", p.postal_code, 11, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "COUNTRY", p.country, 3, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = leaf(out, w, "PHONE", p.phone, 32, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    close_tag(out, w, "PAYEE", depth);
+    return no_fault();
+}
+
+// write_rate writes a CURRENCY or ORIGCURRENCY aggregate. The rate text
+// must read back as the exact rational of the entry.
+fn write_rate(out: u8[>..]&, w: OfxForm, e: Entry, depth: i64, lim: Limits&) -> Fault {
+    let x = e.ofx;
+    var tag: const u8[:] = "CURRENCY";
+    if x.rate_kind == 'O' { tag = "ORIGCURRENCY"; }
+    if x.rate_kind != 'C' && x.rate_kind != 'O' { return fault(F_SYNTAX, 0, 0, "CURRATE", "the rate kind is not C or O"); }
+    let r, rf = ofx_ratio(x.rate_text);
+    if rf.kind != F_NONE { return with_pos(rf, 0, "CURRATE"); }
+    if r.num == 0 || r.num != x.rate.num || r.den != x.rate.den {
+        return fault(F_AMOUNT, 0, 0, "CURRATE", "the rate text differs from the rate or is zero");
+    }
+    if x.rate_symbol.len != 3 || currency_index(x.rate_symbol) < 0 {
+        return fault(F_AMOUNT, 0, 0, "CURSYM", "the currency is not a known code");
+    }
+    if x.rate_kind == 'C' && e.amount.currency != x.rate_symbol {
+        return fault(F_AMOUNT, 0, 0, "CURSYM", "the symbol differs from the currency of the amount");
+    }
+    open_tag(out, w, tag, depth);
+    var f = leaf(out, w, "CURRATE", x.rate_text, 32, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = leaf(out, w, "CURSYM", x.rate_symbol, 3, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    close_tag(out, w, tag, depth);
+    return no_fault();
+}
+
 fn write_entry(out: u8[>..]&, w: OfxForm, e: Entry, depth: i64, lim: Limits&) -> Fault {
     let t: const u8[:] = "STMTTRN";
+    let x = e.ofx;
     let m, ok = signed_entry(e);
     if !ok { return fault(F_AMOUNT, 0, 0, t, "amount has no sign"); }
     if !in_list(TRNTYPES, e.type_id) { return fault(F_SYNTAX, 0, 0, "TRNTYPE", "unknown transaction type"); }
+    if x.correct_action.len > 0 && x.correct_action != "REPLACE" && x.correct_action != "DELETE" {
+        return fault(F_SYNTAX, 0, 0, "CORRECTACTION", "the action is not REPLACE or DELETE");
+    }
+    if x.correct_ref.len > 0 && x.correct_action.len == 0 {
+        return fault(F_SYNTAX, 0, 0, "CORRECTACTION", "a correction needs its action");
+    }
+    if x.correct_action.len > 0 && x.correct_ref.len == 0 {
+        return fault(F_SYNTAX, 0, 0, "CORRECTFITID", "an action needs the corrected id");
+    }
+    if x.has_payee && e.counter_name.len > 0 && e.counter_name != x.payee.name {
+        return fault(F_SYNTAX, 0, 0, "PAYEE", "the entry holds a name and a payee");
+    }
     open_tag(out, w, t, depth);
     var f = leaf(out, w, "TRNTYPE", e.type_id, 16, depth + 1, lim);
     if f.kind != F_NONE { return f; }
     f = leaf_date(out, w, "DTPOSTED", e.value_date, depth + 1, lim);
     if f.kind != F_NONE { return f; }
+    if x.user_date.year != 0 {
+        f = leaf_date(out, w, "DTUSER", x.user_date, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
     if e.entry_date.year != 0 {
         f = leaf_date(out, w, "DTAVAIL", e.entry_date, depth + 1, lim);
         if f.kind != F_NONE { return f; }
@@ -226,24 +306,30 @@ fn write_entry(out: u8[>..]&, w: OfxForm, e: Entry, depth: i64, lim: Limits&) ->
     if f.kind != F_NONE { return f; }
     f = leaf(out, w, "FITID", e.entry_ref, 255, depth + 1, lim);
     if f.kind != F_NONE { return f; }
-    if e.bank_ref.len > 0 {
-        f = leaf(out, w, "SRVRTID", e.bank_ref, 10, depth + 1, lim);
-        if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "CORRECTFITID", x.correct_ref, 255, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "CORRECTACTION", x.correct_action, 7, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "SRVRTID", e.bank_ref, 10, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "CHECKNUM", e.customer_ref, 12, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "REFNUM", e.supplementary, 32, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "PAYEEID", x.payee_id, 12, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    if x.has_payee {
+        f = write_payee(out, w, x.payee, depth + 1, lim);
+    } else {
+        f = opt_leaf(out, w, "NAME", e.counter_name, 32, depth + 1, lim);
     }
-    if e.customer_ref.len > 0 {
-        f = leaf(out, w, "CHECKNUM", e.customer_ref, 12, depth + 1, lim);
-        if f.kind != F_NONE { return f; }
-    }
-    if e.supplementary.len > 0 {
-        f = leaf(out, w, "REFNUM", e.supplementary, 32, depth + 1, lim);
-        if f.kind != F_NONE { return f; }
-    }
-    if e.counter_name.len > 0 {
-        f = leaf(out, w, "NAME", e.counter_name, 32, depth + 1, lim);
-        if f.kind != F_NONE { return f; }
-    }
-    if e.narrative.len > 0 {
-        f = leaf(out, w, "MEMO", e.narrative, 255, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "EXTDNAME", x.ext_name, 100, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "MEMO", e.narrative, 255, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    if x.rate_kind != 0 {
+        f = write_rate(out, w, e, depth + 1, lim);
         if f.kind != F_NONE { return f; }
     }
     close_tag(out, w, t, depth);

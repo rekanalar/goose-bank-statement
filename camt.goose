@@ -432,7 +432,7 @@ fn camt_entry(doc: xml::Doc&, id: i32, lim: Limits&, entries: Entry[>..]&, buf: 
         units: Rational { num: 0, den: 1 }, has_units: false, units_text: "",
         unit_price: Rational { num: 0, den: 1 }, has_unit_price: false, unit_price_text: "",
         commission: Rational { num: 0, den: 1 }, has_commission: false, commission_text: "",
-        total: Rational { num: 0, den: 1 }, has_total: false, total_text: "",
+        total: Rational { num: 0, den: 1 }, has_total: false, total_text: "", ofx: no_ofx(),
     };
     // A reversal of a credit is RC, a reversal of a debit is RD.
     if credit { e.mark = "C"; } else { e.mark = "D"; }
