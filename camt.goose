@@ -44,16 +44,54 @@ struct CamtHeader {
     additional_info: const u8[:],
     initiator: const u8[:],
     recipient: const u8[:],
+    definition: const u8[:],
+    service: const u8[:],
 }
 
 // camt_header reads the group header of the message into a record. A
 // field that the message holds not stays empty.
-fn camt_header(doc: xml::Doc&, kind: i32, grp: i32, buf: u8[>..]&) -> CamtHeader {
+fn camt_header(doc: xml::Doc&, kind: i32, app: i32, grp: i32, buf: u8[>..]&) -> CamtHeader {
     var h = CamtHeader {
         kind: kind, message_id: "", has_creation: false, creation: no_date(),
         creation_minutes: 0, creation_offset: 0, entry_count: "", additional_info: "",
-        initiator: "", recipient: "",
+        initiator: "", recipient: "", definition: "", service: "",
     };
+    // The application header. It carries the same facts as the group
+    // header under other names. A fact the group header held not is
+    // taken from here.
+    if app >= 0 {
+        let d, hasd = c_text(doc, app, "MsgDefIdr", buf);
+        if hasd { h.definition = d; }
+        let sv, hass = c_text(doc, app, "BizSvc", buf);
+        if hass { h.service = sv; }
+    }
+    // The application header fills what the group header held not.
+    if app >= 0 {
+        if h.message_id.len == 0 {
+            let bid, has8 = c_text(doc, app, "BizMsgIdr", buf);
+            if has8 { h.message_id = bid; }
+        }
+        if !h.has_creation {
+            let cdt2, has9 = c_text(doc, app, "CreDt", buf);
+            if has9 {
+                let d2, mins, off, ok2 = camt_datetime(cdt2);
+                if !ok2 {
+                    let d3, ok3 = camt_date(cdt2);
+                    if ok3 {
+                        h.creation = d3;
+                        h.has_creation = true;
+                    }
+                } else {
+                    h.creation = d2;
+                    h.creation_minutes = mins;
+                    h.creation_offset = off;
+                    h.has_creation = true;
+                }
+            }
+        }
+        if h.initiator.len == 0 { h.initiator = party_name(doc, app, "Fr", buf); }
+        if h.recipient.len == 0 { h.recipient = party_name(doc, app, "To", buf); }
+    }
     if grp < 0 { return h; }
     let mid, has = c_text(doc, grp, "MsgId", buf);
     if has { h.message_id = mid; }
@@ -92,6 +130,32 @@ fn camt_header(doc: xml::Doc&, kind: i32, grp: i32, buf: u8[>..]&) -> CamtHeader
         if has7 { h.recipient = nm; }
     }
     return h;
+}
+
+// party_name reads the name of a party of the application header. The
+// party is a choice: a name, a financial institution, or a clearing
+// system member. The name comes from Nm, or from the BIC, or from the
+// member id.
+fn party_name(doc: xml::Doc&, id: i32, local: const u8[:], buf: u8[>..]&) -> const u8[:] {
+    let p = c_child(doc, id, local);
+    if p < 0 { return ""; }
+    let nm, has = c_text(doc, p, "Nm", buf);
+    if has { return nm; }
+    let fi = c_child(doc, p, "FIId");
+    if fi < 0 {
+        let mmb = c_child(doc, p, "ClrSysMmbId");
+        if mmb < 0 { return ""; }
+        let mid, has3 = c_text(doc, mmb, "MmbId", buf);
+        if has3 { return mid; }
+        return "";
+    }
+    let fin = c_child(doc, fi, "FinInstnId");
+    if fin < 0 { return ""; }
+    let bic, has2 = c_text(doc, fin, "BICFI", buf);
+    if has2 { return bic; }
+    let nm2, has4 = c_text(doc, fin, "Nm", buf);
+    if has4 { return nm2; }
+    return "";
 }
 
 // c_child gives the first child element of the element with the local
@@ -719,6 +783,19 @@ fn camt_statement(doc: xml::Doc&, id: i32, kind: i32, grp: i32, lim: Limits&,
     }
     let cpd, hasc = c_text(doc, id, "CpyDplctInd", buf);
     if hasc { statements[cur].copy_duplicate = cpd; }
+    let src = c_child(doc, id, "RptgSrc");
+    if src >= 0 {
+        let cd, hasc2 = c_text(doc, src, "Cd", buf);
+        if !hasc2 { let pr, hasp = c_text(doc, src, "Prtry", buf); if hasp { statements[cur].reporting_source = pr; } else { statements[cur].reporting_source = cd; } }
+        else { statements[cur].reporting_source = cd; }
+    }
+    let pg = c_child(doc, id, "StmtPgntn");
+    if pg >= 0 {
+        let nb, hasnb = c_text(doc, pg, "PgNb", buf);
+        if hasnb { statements[cur].page_number = nb; }
+        let lp, haslp = c_text(doc, pg, "LastPgInd", buf);
+        if haslp && lp == "true" { statements[cur].last_page = true; }
+    }
     let seq = c_child(doc, id, "RptgSeq");
     if seq >= 0 {
         let rng = c_child(doc, seq, "FrToSeq");
@@ -821,6 +898,8 @@ fn parse_camt(input: const u8[:], lim: Limits&, opts: CamtOptions&, header: Camt
     if msg < 0 { msg = c_child(doc, doc.root, "BkToCstmrStmt"); kind = 2; }
     if msg < 0 { msg = c_child(doc, doc.root, "BkToCstmrDbtCdtNtfctn"); kind = 3; }
     if msg < 0 { return fault(F_SYNTAX, 0, 0, "Document", "the document has no camt message"); }
+    // The application header sits beside the message.
+    let app = c_child(doc, doc.root, "AppHdr");
     // The group header holds the message id.
     let grp = c_child(doc, msg, "GrpHdr");
     // The name of the statement container of the message.
@@ -839,6 +918,6 @@ fn parse_camt(input: const u8[:], lim: Limits&, opts: CamtOptions&, header: Camt
         c = n.next_sibling;
     }
     if found == 0 { return fault(F_SYNTAX, 0, 0, "Document", "the document has no camt statement"); }
-    header = camt_header(doc, kind, grp, buf);
+    header = camt_header(doc, kind, app, grp, buf);
     return no_fault();
 }

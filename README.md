@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.26.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.27.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -153,6 +153,11 @@ The header of the message is a `CamtHeader`. It holds the kind, the message id, 
 It holds the entry count, the additional information, and the names of the initiator and the recipient.
 The entry count and the names stay text. A field that the message holds not stays empty.
 
+An `AppHdr` element beside the message fills the header too.
+`MsgDefIdr` and `BizSvc` land in `definition` and `service`.
+`BizMsgIdr`, `CreDt`, `Fr` and `To` fill the fields the group header held not.
+The party name comes from `Nm`, or from `BICFI`, or from the member id.
+
 An element name matches after the namespace.
 So any schema version from `.001.01` to `.001.14` parses, and any prefix works.
 An element the reader does not know is ignored.
@@ -170,6 +175,8 @@ The fields of the statement come from these elements.
 | `period_from`, `period_to`, `has_period` | `FrToDt`, through `FrDtTm` and `ToDtTm` or `FrDt` and `ToDt` |
 | `copy_duplicate` | `CpyDplctInd` |
 | `reporting_from`, `reporting_to` | `RptgSeq`, through `FrToSeq/From` and `FrToSeq/To`, or `FrSeq` and `ToSeq` |
+| `reporting_source` | `RptgSrc`, through `Cd` or `Prtry` |
+| `page_number`, `last_page` | `StmtPgntn/PgNb` and `StmtPgntn/LastPgInd` |
 
 The type code of a balance gives its kind. The code text stays on every balance in `code`.
 
@@ -658,7 +665,7 @@ The QIF date has no standard order, so the caller chooses it.
 This package is below `v1.0.0`. These gaps against the reference libraries stay open.
 
 - **`parse_camt` takes the header as a parameter now.** The old form was `parse_camt(input, lim, opts, statements, entries, balances, buf)`. The new form adds `header` after `opts`. A caller binds a `CamtHeader` and passes it.
-- **The camt reader reads the group header and the statements.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message. The business application header of the wrapper stays unread.
+- **The camt reader reads the group header and the statements.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the summary. It reads the application header too.
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **The investment statement, the sign-on request and bill pay have no typed record.** The element tree writer writes them. It checks each element against the rules. Python `ofxtools` and Go `ofxgo` model each element.

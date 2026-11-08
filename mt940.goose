@@ -217,6 +217,9 @@ struct Statement {
     copy_duplicate: const u8[:],
     reporting_from: const u8[:],
     reporting_to: const u8[:],
+    reporting_source: const u8[:],
+    page_number: const u8[:],
+    last_page: bool,
     debit_count: i64,
     debit_total: Amount,
     has_debit_total: bool,
@@ -302,6 +305,7 @@ fn new_statement() -> Statement {
         report_date: no_date(), report_minutes: 0, report_offset: 0, has_report_time: false,
         period_from: no_date(), period_to: no_date(), has_period: false,
         copy_duplicate: "", reporting_from: "", reporting_to: "",
+        reporting_source: "", page_number: "", last_page: false,
         debit_count: 0, debit_total: z, has_debit_total: false,
         credit_count: 0, credit_total: z, has_credit_total: false,
     };

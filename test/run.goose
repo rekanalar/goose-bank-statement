@@ -762,6 +762,8 @@ const CAMT53: const u8[:] = """
       <FrToDt><FrDtTm>2025-01-01T00:00:00</FrDtTm><ToDtTm>2025-01-31T23:59:59</ToDtTm></FrToDt>
       <CpyDplctInd>CCPY</CpyDplctInd>
       <RptgSeq><FrToSeq><From>11</From><To>78</To></FrToSeq></RptgSeq>
+      <RptgSrc><Cd>MLST</Cd></RptgSrc>
+      <StmtPgntn><PgNb>2</PgNb><LastPgInd>true</LastPgInd></StmtPgntn>
       <Acct><Id><IBAN>DE89370400440532013000</IBAN></Id><Ccy>EUR</Ccy></Acct>
       <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-01-01</Dt></Dt></Bal>
       <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1700.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-01-02</Dt></Dt></Bal>
@@ -1380,6 +1382,8 @@ fn test_camt_statement() {
     assert(st.period_to.year == 2025 && st.period_to.month == 1 && st.period_to.day == 31);
     assert(st.copy_duplicate == "CCPY");
     assert(st.reporting_from == "11" && st.reporting_to == "78");
+    assert(st.reporting_source == "MLST");
+    assert(st.page_number == "2" && st.last_page);
     // The balances.
     assert(st.balance_count == 9);
     assert(st.opening.kind == bank_statement::BAL_OPENING);
@@ -1416,7 +1420,53 @@ fn test_camt_statement() {
     assert(ens[1].mark == "RD" && ens[1].amount.minor == 20000 && ens[1].type_id == "DEB01/BANK");
     // A pending entry stays out of the sum.
     assert(ens[2].status == "PDNG");
+    // The group header facts land in the message header.
+    assert(hd2.kind == 2 && hd2.message_id == "MSG-1");
+    assert(hd2.has_creation && hd2.creation.year == 2025);
+    assert(hd2.initiator == "Main St Ltd" && hd2.recipient == "Acme Corp");
+    assert(hd2.entry_count == "3" && hd2.additional_info == "settlement daily");
 }
+
+fn test_camt_apphdr() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::CamtOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf: u8[>..] = [];
+    var hd = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(CAMTAPP, lim, opts, hd, sts, ens, bals, buf);
+    if f.kind != 0 { print("FAIL camtapp ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0 && sts.len == 1);
+    assert(hd.definition == "camt.053.001.08" && hd.service == "AccountReporting");
+    // The application header fills what the group header held not.
+    assert(hd.message_id == "APP-MSG-1");
+    assert(hd.has_creation && hd.creation.year == 2025 && hd.creation_minutes == 15 * 60 + 30 && hd.creation_offset == 60);
+    assert(hd.initiator == "BANKDEFF" && hd.recipient == "CLEARINGX");
+    assert(sts[0].report_date.year == 2025);
+}
+
+const CAMTAPP: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <AppHdr>
+    <Fr><FIId><FinInstnId><BICFI>BANKDEFF</BICFI></FinInstnId></FIId></Fr>
+    <To><FIId><FinInstnId><BICFI>CLEARINGX</BICFI></FinInstnId></FIId></To>
+    <BizMsgIdr>APP-MSG-1</BizMsgIdr>
+    <MsgDefIdr>camt.053.001.08</MsgDefIdr>
+    <BizSvc>AccountReporting</BizSvc>
+    <CreDt>2025-01-02T15:30:00+01:00</CreDt>
+  </AppHdr>
+  <BkToCstmrStmt>
+    <Stmt>
+      <Id>APP-STMT</Id>
+      <CreDtTm>2025-01-02T15:30:00+01:00</CreDtTm>
+      <Acct><Id><IBAN>DE89370400440532013000</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">10.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-01-01</Dt></Dt></Bal>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>
+""";
 
 fn test_camt_interim() {
     let lim = bank_statement::default_limits();
@@ -3890,6 +3940,7 @@ fn main() {
     test_narrative_pairs();
     test_narrative_plain();
     test_camt_statement();
+    test_camt_apphdr();
     test_camt_interim();
     test_camt_versions();
     test_camt_checks();
