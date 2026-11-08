@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.32.0";
+import bank_statement from "rekanalar/goose-bank-statement@v1.0.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import finance from "rekanalar/goose-finance@v0.1.0";
@@ -680,7 +680,8 @@ The QIF date has no standard order, so the caller chooses it.
 
 ## Limits
 
-This package is below `v1.0.0`. These gaps against the reference libraries stay open.
+This package holds `v1.0.0`. The list below names the places where the
+references disagree, and what this package does about each.
 
 - **`parse_camt` takes the header as a parameter now.** The old form was `parse_camt(input, lim, opts, statements, entries, balances, buf)`. The new form adds `header` after `opts`. A caller binds a `CamtHeader` and passes it.
 - **The camt reader reads the group header and the statements.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the summary. It reads the application header too.
