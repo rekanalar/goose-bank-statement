@@ -18,12 +18,12 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.20.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.21.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
-The camt reader uses the package `goose-xml`. A package that needs another package
-must have that package declared in the root file of the program.
+The camt reader uses the package `goose-xml`. The network client uses the package `goose-process`.
+A package that needs another package must have that package declared in the root file of the program.
 If the second line is missing, the compiler names the line to add.
 
 ## API
@@ -44,6 +44,7 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_ofx_tree(input, lim, tree, buf)` | reads every element under the OFX root into a flat list of `OfxNode`; gives a `Fault` |
 | `write_ofx_tree(tree, opts, lim, out)` | appends an OFX file from a list of `OfxNode`; checks each element against the rules; gives a `Fault` |
 | `check_ofx_tree(tree, lim)` | checks a list of `OfxNode` against the element rules of OFX; gives the first `Fault` |
+| `ofx_fetch(request, opts, lim, out, buf)` | sends an OFX request over HTTPS with `curl` and appends the body; gives the status code and a `Fault` |
 | `parse_dialect(kind, text, lim, values, buffer)` | reads the named values of a `:86:` text of a Dutch bank; gives a `Fault` |
 | `parse_qif_lists(input, lim, opts, items, budgets, lines, extra, prices)` | reads the list sections of a QIF file into typed records; gives a `Fault` |
 | `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
@@ -582,6 +583,14 @@ A name that starts with `X` and has no rule row stays unchecked with its childre
 The specification keeps that range for private extensions.
 Set `loose_elements` in `OfxWriteOptions` to skip the element check. `check_ofx_tree` runs the check alone.
 
+**The network client.** `ofx_fetch` sends an OFX request over HTTPS and appends the body of the answer.
+The caller builds the request with `write_ofx_tree` and parses the body with `parse_ofx` or `parse_ofx_tree`.
+`OfxFetch` holds the URL, the time limit in milliseconds, the type of the content and the user agent.
+The type of the content defaults to the type of the OFX 1.x form. The call gives the status code of the HTTP answer.
+
+The client runs the `curl` program of the system as a child process. The TLS stack of the system does the crypto.
+The child runs without a shell. The size of the answer never passes `max_input`.
+
 **OFX profile.** `parse_ofx_profile` reads the `PROFRS` aggregate of a profile response.
 
 `OfxProfile` holds the institution: name, address, phones, URL, e-mail and the date of the profile. Its field `found` tells whether the file holds a profile.
@@ -615,9 +624,8 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.
 - **The readers do not transcode.** A byte above 127 passes through into the text. The caller calls `decode_charset` first. Node `@fin.cx/mt940` fixes the encoding of each field. The package has no other charset than Windows-1252 and ISO-8859-1.
-- **The OFX package has no network.** Python `ofxtools` and
-  Go `ofxgo` speak OFX over HTTPS. The standard library of Goose has no
-  HTTP client.
+- **The network client needs the `curl` program.** Python `ofxtools` and Go `ofxgo` hold their own HTTP stack. This package runs `curl` as a child process, so the caller needs `curl` on the system. The TLS stack of the system does the crypto.
+- **The answer is held in memory.** The cap is `max_input`, and `curl` enforces it. A parser bound applies after the fetch.
 - **The QIF Payee, Budget and Tag sections have no standard.** GnuCash, KMyMoney and Python `quiffen` skip them. Rust `qif_parser` reads Budget and Tag. The Perl library `Finance::QIF` is the only source for the Payee list. It numbers the address lines `A0` to `A2`. This package keeps the text of each `A` line as written. A numbered file gives lines that start with the number.
 - **The QIF `B` code of an account has two meanings.** GnuCash reads a budget. `Finance::QIF` reads a balance. This package keeps it as a field.
 - **A price line holds three parts.** `Finance::QIF` reads three more parts, a high, a low and a volume. This package refuses a line with more than three parts.
@@ -658,6 +666,7 @@ Protections beyond the reference libraries:
   reference library does. A deep SGML body crashes `ofx-js` and
   `ofxtools` with a stack overflow.
 - **No entity of a document expands.** The package `goose-xml` skips a doctype. It never expands an entity. An unknown entity is a fault. It also refuses a picture deeper than 256 levels. Java `prowide-iso20022` and Python `camt053` use a parser that reads a doctype with an internal subset.
+- **The network client takes HTTPS only.** A URL with a space or a control byte is a fault. The child runs without a shell, so no URL can inject a command. The answer size is capped before the download fills the memory.
 - **The security list writer checks every field.** An unknown kind is a fault. So is a missing id or name. So is a price with no finite decimal form. Python `ofxtools` writes the price through a float context.
 - **The OFX tree writer checks the rules.** An unknown element is a fault. So is an element out of order. So is a required element that is absent. So is a text that breaks its kind. The reference writers trust the caller.
 - **The OFX writer escapes text.** Python `ofxtools` writes the text of the SGML form raw. A memo that holds `</STMTTRN><STMTTRN>` then adds a transaction. This package writes `&`, `<` and `>` as entities. It writes a byte above 127 as a numeric reference. Both forms do this.

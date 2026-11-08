@@ -3,6 +3,7 @@
 
 import std;
 import xml from "rekanalar/goose-xml@v2.0.0";
+import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 
 fn main() {

@@ -12,6 +12,7 @@ namespace bank_statement;
 
 import std;
 import xml from "rekanalar/goose-xml@v2.0.0";
+import process from "rekanalar/goose-process@v1.0.0";
 import fault;
 import text;
 import limits;
@@ -33,6 +34,7 @@ import ofx_write;
 import ofx_seclist;
 import ofx_profile;
 import ofx_spec;
+import ofx_net;
 import ofx_tree;
 import camt;
 import transcode;

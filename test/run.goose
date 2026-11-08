@@ -3,6 +3,7 @@
 import std;
 import os;
 import xml from "rekanalar/goose-xml@v2.0.0";
+import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 
 fn expect_amount(text: const u8[:], exp: i32, dec: u8, grp: u8, want: i64) {
@@ -3067,6 +3068,30 @@ fn run_tree_write(tree: bank_statement::OfxNode[>..]&, opts: bank_statement::Ofx
     return bank_statement::write_ofx_tree(tree, opts, lim, out).kind;
 }
 
+fn test_ofx_net() {
+    let lim = bank_statement::default_limits();
+    var body: u8[>..] = [];
+    var buf: u8[>..] = [];
+    // A URL that is not HTTPS is a fault.
+    let o1 = bank_statement::OfxFetch { url: "http://example.com/", timeout_ms: 0, content_type: "", user_agent: "" };
+    let c1, f1 = bank_statement::ofx_fetch("x", o1, lim, body, buf);
+    assert(f1.kind == bank_statement::F_SYNTAX && c1 == 0);
+    // A URL with a space is a fault.
+    let o2 = bank_statement::OfxFetch { url: "https://ex ample.com/", timeout_ms: 0, content_type: "", user_agent: "" };
+    let c2, f2 = bank_statement::ofx_fetch("x", o2, lim, body, buf);
+    assert(f2.kind == bank_statement::F_SYNTAX && c2 == 0);
+    // A request over max_input is a fault.
+    var small = bank_statement::default_limits();
+    small.max_input = 2;
+    let o3 = bank_statement::OfxFetch { url: "https://example.com/", timeout_ms: 0, content_type: "", user_agent: "" };
+    let c3, f3 = bank_statement::ofx_fetch("abc", o3, small, body, buf);
+    assert(f3.kind == bank_statement::F_LIMIT && c3 == 0);
+    // A URL with a control byte is a fault.
+    let o4 = bank_statement::OfxFetch { url: "https://example.com/\x01", timeout_ms: 0, content_type: "", user_agent: "" };
+    let c4, f4 = bank_statement::ofx_fetch("x", o4, lim, body, buf);
+    assert(f4.kind == bank_statement::F_SYNTAX && c4 == 0);
+}
+
 fn test_ofx_tree() {
     let lim = bank_statement::default_limits();
     var tree: bank_statement::OfxNode[>..] = [];
@@ -3655,6 +3680,7 @@ fn main() {
     test_ofx_seclist();
     test_country();
     test_ofx_profile();
+    test_ofx_net();
     test_ofx_tree();
     test_qif_item_faults();
     test_write_ofx();
