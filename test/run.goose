@@ -124,7 +124,7 @@ const STMT1: const u8[:] = "{1:F01BANKBEBBAXXX0000000000}{2:O9401234250101BANKDE
 
 // parse_kind parses text and gives only the fault. The arrays are local.
 fn parse_kind(text: const u8[:], lim: bank_statement::Limits&, skip: bool) -> bank_statement::Fault {
-    let opts = bank_statement::Mt940Options { skip_balance_check: skip, check_fields: false };
+    let opts = bank_statement::Mt940Options { skip_balance_check: skip, check_fields: false, style: 0 };
     var sts: bank_statement::Statement[>..] = [];
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
@@ -263,7 +263,7 @@ fn test_balance_checked() {
     var notes: bank_statement::Note[>..] = [];
     let text = ":20:A\n:60F:C250101EUR0,00\n:62F:C250101EUR0,00\n";
     let on = bank_statement::Mt940Options { .. };
-    let off = bank_statement::Mt940Options { skip_balance_check: true, check_fields: false };
+    let off = bank_statement::Mt940Options { skip_balance_check: true, check_fields: false, style: 0 };
     let f = bank_statement::parse_mt940(text, lim, on, sts, ens, bals, notes);
     assert(f.kind == 0 && sts[0].balance_checked);
     var sts2: bank_statement::Statement[>..] = [];
@@ -602,7 +602,7 @@ fn test_mt940_64_65() {
     var ens3: bank_statement::Entry[>..] = [];
     var bals3: bank_statement::Balance[>..] = [];
     var notes3: bank_statement::Note[>..] = [];
-    let off = bank_statement::Mt940Options { skip_balance_check: true, check_fields: false };
+    let off = bank_statement::Mt940Options { skip_balance_check: true, check_fields: false, style: 0 };
     let h = bank_statement::parse_mt940(":20:A\n:65:C250101EUR1,00\n:65:C250102EUR2,00\n", lim, off, sts3, ens3, bals3, notes3);
     assert(h.kind == 0 && sts3[0].forward.amount.minor == 200);
 }
@@ -2024,7 +2024,7 @@ fn test_ofx_forms() {
 // fields_kind parses text with the field rules on and gives the fault.
 fn fields_kind(text: const u8[:]) -> bank_statement::Fault {
     let lim = bank_statement::default_limits();
-    let opts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true };
+    let opts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true, style: 0 };
     var sts: bank_statement::Statement[>..] = [];
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
@@ -2252,6 +2252,52 @@ fn test_dialect_abn() {
     let i = dialect_run(bank_statement::D_ABN_AMRO, "foo", other, buf4);
     assert(i.kind == 0);
     assert(other.len == 0);
+}
+
+fn test_dialect_mbank() {
+    var vals: bank_statement::DialectValue[>..] = [];
+    var buf: u8[>..] = [];
+    let f = dialect_run(bank_statement::D_MBANK, "020 PRZELEW;ID IPH: X1234;x ID IPH: XX00123456789012;TNR: 1234.5678;", vals, buf);
+    assert(f.kind == 0);
+    assert(dialect_value(vals, "transaction_code") == "020");
+    assert(dialect_value(vals, "iph_id") == "00123456789012");
+    assert(dialect_value(vals, "tnr") == "1234.5678");
+    var v2: bank_statement::DialectValue[>..] = [];
+    assert(dialect_run(bank_statement::D_MBANK, "5 X\nTNR:\n12.3", v2, buf).kind == 0);
+    assert(dialect_value(v2, "transaction_code") == "5" && dialect_value(v2, "tnr") == "12.3");
+    // A text with none of the three gives no value and no fault.
+    var v3: bank_statement::DialectValue[>..] = [];
+    assert(dialect_run(bank_statement::D_MBANK, "hello; TNR:12.3", v3, buf).kind == 0);
+    assert(v3.len == 0);
+}
+
+fn style_kind(style: i32, cref: const u8[:], bref: const u8[:]) -> i32 {
+    var text: u8[>..] = [];
+    format(text, ":20:S\n:25:A\n:28C:1/1\n:60F:C250101EUR1,00\n:61:250102C1,00NTRF");
+    format(text, cref);
+    if bref.len > 0 { format(text, "//"); format(text, bref); }
+    format(text, "\n:62F:C250102EUR2,00\n");
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true, style: style };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    return bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes).kind;
+}
+
+fn test_styles() {
+    let c20 = "01234567890123456789";
+    let c40 = "0123456789012345678901234567890123456789";
+    let b20 = "01234567890123456789";
+    assert(style_kind(bank_statement::STYLE_SWIFT, c20, "") == bank_statement::F_SYNTAX);
+    assert(style_kind(bank_statement::STYLE_ASNB, c20, "") == 0);
+    assert(style_kind(bank_statement::STYLE_ASNB, c40, "") == bank_statement::F_SYNTAX);
+    assert(style_kind(bank_statement::STYLE_GLS, c40, "") == 0);
+    assert(style_kind(bank_statement::STYLE_GLS, c40, b20) == 0);
+    assert(style_kind(bank_statement::STYLE_GLS, c40, "0123456789012345678901234") == bank_statement::F_SYNTAX);
+    assert(style_kind(bank_statement::STYLE_ASNB, c20, b20) == bank_statement::F_SYNTAX);
+    assert(style_kind(7, c20, "") == bank_statement::F_SYNTAX);
 }
 
 fn test_dialect_ing() {
@@ -2542,7 +2588,7 @@ fn test_write_ofx() {
 
 fn test_write_mt940() {
     let lim = bank_statement::default_limits();
-    let ropts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true };
+    let ropts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true, style: 0 };
     var sts: bank_statement::Statement[>..] = [];
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
@@ -3080,6 +3126,8 @@ fn main() {
     test_ofx_more_faults();
     test_write_mt942();
     test_write_mt942_bare();
+    test_dialect_mbank();
+    test_styles();
     test_write_mt942_hybrid();
     test_amount();
     test_amount_faults();

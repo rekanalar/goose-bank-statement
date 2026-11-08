@@ -1,8 +1,8 @@
 // The bank dialects of the :86: field for the bank_statement package.
 //
 // A dialect reads the text of a :86: field and gives the named values
-// of one bank. The four banks are the Dutch ones that the Python
-// library mt940 reads. The names of the values keep the names of that
+// of one bank. The banks are the four Dutch ones and mBank, as the
+// Python library mt940 reads them. The names of the values keep the names of that
 // library.
 //
 // The values point at the text of the caller or at the buffer of the
@@ -20,6 +20,7 @@ const D_RABOBANK: i32 = 1;
 const D_ABN_AMRO: i32 = 2;
 const D_ING: i32 = 3;
 const D_REGIOBANK: i32 = 4;
+const D_MBANK: i32 = 5;
 
 // DialectValue holds one named value of a dialect. The key names the
 // value. The value is the text of the bank.
@@ -392,15 +393,60 @@ fn regiobank_dialect(text: const u8[:], out: DialectValue[>..]&, lim: Limits&, b
     return put_dialect(out, lim, "reference", rest);
 }
 
+// mbank_dialect reads the text of an mBank statement line. The first
+// field up to the semicolon starts with the transaction code. The text
+// may hold an IPH id and a TNR number. Python mt940 reads the same three.
+// A value that is not there gives no value. The values point at the text.
+fn mbank_dialect(text: const u8[:], out: DialectValue[>..]&, lim: Limits&) -> Fault {
+    // The transaction code: digits before the first space of the first
+    // semicolon field.
+    var i = 0;
+    while i < text.len && is_digit(text[i]) { i += 1; }
+    if i > 0 && i <= 9 && (i == text.len || text[i] == ' ' || text[i] == ';') {
+        let f = put_dialect(out, lim, "transaction_code", text[..i]);
+        if f.kind != F_NONE { return f; }
+    }
+    // The IPH id: " ID IPH: " then masking X marks, up to 14 digits, ";".
+    let ip = find(text, " ID IPH: ");
+    if ip >= 0 {
+        var j = ip + 9;
+        while j < text.len && (text[j] == 'X' || text[j] == 'x') { j += 1; }
+        let ds = j;
+        while j < text.len && is_digit(text[j]) && j - ds < 14 { j += 1; }
+        if j < text.len && text[j] == ';' {
+            let f = put_dialect(out, lim, "iph_id", text[ds..j]);
+            if f.kind != F_NONE { return f; }
+        }
+    }
+    // The TNR number: "TNR:", one space or line end, digits, ".", digits.
+    let tp = find(text, "TNR:");
+    if tp >= 0 {
+        var j = tp + 4;
+        if j < text.len && (text[j] == ' ' || text[j] == '\n') { j += 1; }
+        else if j + 1 < text.len && text[j] == '\r' && text[j + 1] == '\n' { j += 2; }
+        else { return no_fault(); }
+        let ds = j;
+        while j < text.len && is_digit(text[j]) { j += 1; }
+        if j > ds && j < text.len && text[j] == '.' {
+            j += 1;
+            let es = j;
+            while j < text.len && is_digit(text[j]) { j += 1; }
+            if j > es { return put_dialect(out, lim, "tnr", text[ds..j]); }
+        }
+    }
+    return no_fault();
+}
+
 // parse_dialect reads the text of a :86: field with the dialect of the
 // named bank. It gives the values of the bank. A text of another bank
 // gives no values and no fault.
 fn parse_dialect(kind: i32, text: const u8[:], lim: Limits&, out: DialectValue[>..]&, buf: u8[>..]&) -> Fault {
-    if kind != D_RABOBANK && kind != D_ABN_AMRO && kind != D_ING && kind != D_REGIOBANK {
+    if kind != D_RABOBANK && kind != D_ABN_AMRO && kind != D_ING && kind != D_REGIOBANK && kind != D_MBANK {
         return fault(F_SYNTAX, 0, 1, "", "the kind is not a bank of the package");
     }
     if text.len > lim.max_field { return fault(F_LIMIT, 0, 1, "", "the text is longer than max_field"); }
     if kind == D_REGIOBANK { return regiobank_dialect(text, out, lim, buf); }
+    if kind == D_MBANK { return mbank_dialect(text, out, lim); }
     // The other banks write their tags over the line ends.
     let joined = copy_no_lines(text, buf);
     if kind == D_RABOBANK { return walk_tags(joined, RABO_TAGS, RABO_NAMES, out, lim); }

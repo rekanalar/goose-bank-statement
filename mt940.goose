@@ -20,6 +20,13 @@ import text;
 import swift;
 import qif;
 
+// The styles of the :61: line. The manual limits the customer reference
+// to 16 characters. ASN Bank sends up to 34. GLS and Atruvia send any
+// length, and the bank reference holds up to 23.
+const STYLE_SWIFT: i32 = 0;
+const STYLE_ASNB: i32 = 1;
+const STYLE_GLS: i32 = 2;
+
 // The kinds of a balance.
 const BAL_OPENING: i32 = 1;
 const BAL_CLOSING: i32 = 2;
@@ -207,10 +214,13 @@ struct Statement {
 // Mt940Options holds the options of the reader. The zero value is the
 // safe one: the balance check runs. The flag check_fields turns on the
 // field rules of the SWIFT manual. It is off by default, because banks
-// send fields that are longer than the manual allows.
+// send fields that are longer than the manual allows. The value style
+// picks the widths of the :61: line: STYLE_SWIFT (0, the manual),
+// STYLE_ASNB (1) or STYLE_GLS (2).
 struct Mt940Options {
     skip_balance_check: bool,
     check_fields: bool,
+    style: i32,
 }
 
 // State is the working state of one parse. The open statement is the
@@ -304,6 +314,9 @@ fn parse_balance(value: const u8[:], kind: i32, intermediate: bool, line_no: i64
     return b, no_fault();
 }
 
+// lim_unbounded is the width of a field that has no width in the manual.
+fn lim_unbounded() -> i64 { return 9223372036854775807; }
+
 // near_year gives the year of the entry date. An entry date belongs to the
 // year of the value date, unless it lies more than six months away.
 fn near_year(vy: i64, vm: i64, em: i64) -> i64 {
@@ -314,7 +327,7 @@ fn near_year(vy: i64, vm: i64, em: i64) -> i64 {
 
 // parse_entry reads the value of a :61: field. The check flag turns on
 // the widths of the parts of the line.
-fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64, check: bool) -> Entry, Fault {
+fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64, check: bool, style: i32) -> Entry, Fault {
     var e = Entry {
         value_date: no_date(), entry_date: no_date(), mark: "", funds_code: 0,
         amount: Amount { minor: 0, exp: 2, currency: cur },
@@ -388,12 +401,18 @@ fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64, check: bool) 
     }
     e.supplementary = trim(rest);
     if check {
-        let f = check_width(tag, e.customer_ref, line_no, SW_CUSTOMER_REF);
+        var cmax = SW_CUSTOMER_REF;
+        var bmax = SW_BANK_REF;
+        if style == STYLE_ASNB { cmax = 34; }
+        if style == STYLE_GLS { cmax = lim_unbounded(); bmax = 23; }
+        let f = check_width(tag, e.customer_ref, line_no, cmax);
         if f.kind != F_NONE { return e, f; }
-        let g = check_width(tag, e.bank_ref, line_no, SW_BANK_REF);
+        let g = check_width(tag, e.bank_ref, line_no, bmax);
         if g.kind != F_NONE { return e, g; }
-        let h = check_width(tag, e.supplementary, line_no, SW_SUPPLEMENTARY);
-        if h.kind != F_NONE { return e, h; }
+        if style != STYLE_GLS {
+            let h = check_width(tag, e.supplementary, line_no, SW_SUPPLEMENTARY);
+            if h.kind != F_NONE { return e, h; }
+        }
     }
     return e, no_fault();
 }
@@ -675,7 +694,7 @@ fn handle_field(tag: const u8[:], value: const u8[:], line_no: i64, S: State&, l
         var cur = statements[S.cur].opening.amount.currency;
         if cur.len == 0 { cur = statements[S.cur].floor.currency; }
         if cur.len == 0 { return fault(F_SYNTAX, line_no, 1, tag, "entry has no currency: put :60F: or :34F: before it"); }
-        let e, f = parse_entry(value, cur, line_no, opts.check_fields);
+        let e, f = parse_entry(value, cur, line_no, opts.check_fields, opts.style);
         if f.kind != F_NONE { return f; }
         entries.push(e);
         statements[S.cur].entry_count += 1;
@@ -759,6 +778,7 @@ fn parse_mt940(input: const u8[:], lim: Limits&, opts: Mt940Options&,
                statements: Statement[>..]&, entries: Entry[>..]&, balances: Balance[>..]&, notes: Note[>..]&) -> Fault {
     let fi = check_input(input, lim);
     if fi.kind != F_NONE { return fi; }
+    if opts.style < STYLE_SWIFT || opts.style > STYLE_GLS { return fault(F_SYNTAX, 0, 0, "61", "the style is not a style of the package"); }
     var S = State { cur: 0, open: false, last: T_NONE };
     var pos = skip_bom(input);
     var line_no: i64 = 0;

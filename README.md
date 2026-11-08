@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.9.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.10.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -69,13 +69,22 @@ The four balances of the statement are copies of the matching lines of the balan
 A statement that holds none of them holds kind 0 in the field.
 A second `:64:` is a fault. A second `:65:` replaces the value of the first.
 
-`Mt940Options` holds two flags. `skip_balance_check` and `check_fields` are false by default.
+`Mt940Options` holds two flags and a style. `skip_balance_check` and `check_fields` are false by default. `style` is `STYLE_SWIFT` by default.
 
 #### The field rules of the SWIFT manual
 
 The flag `check_fields` turns on the field rules of the manual. It adds faults. It never changes a value.
 Banks send fields that are longer than the manual allows, so the flag is off by default.
 Turn it on for the banks that keep the manual.
+
+The `style` option picks the widths of the `:61:` line under `check_fields`.
+`STYLE_ASNB` lets the customer reference hold 34 characters, as ASN Bank sends it.
+
+`STYLE_GLS` is the style of GLS and Atruvia. The customer reference and the supplementary text have any length.
+The bank reference holds 23 characters.
+
+Python `mt940` 5.1.3 holds these two as opt-in patterns of the `:61:` tag.
+An unknown style is a fault. The writer keeps the widths of the manual.
 
 | Field | Rule |
 |---|---|
@@ -406,7 +415,7 @@ if f.kind != 0 { print(bank_statement::kind_name(f.kind), " at line ", f.line); 
 
 #### The bank dialects of the :86: field
 
-Four Dutch banks write named values into the `:86:` text. Python `mt940` 0.8.1 is the only mature library that reads them.
+Four Dutch banks and mBank write named values into the `:86:` text. Python `mt940` is the only mature library that reads them.
 `parse_dialect(kind, text, limits, values, buffer)` reads one `:86:` text. It fills an array of `DialectValue` with a `key` and a `value`.
 The names keep the names of the Python library.
 
@@ -416,6 +425,7 @@ The names keep the names of the Python library.
 | `D_ABN_AMRO` | `account`, `trtp`, `iban`, `bic`, `csid`, `name`, `remi`, `eref`, `ordp`, `benm` |
 | `D_ING` | `rtrn`, `eref`, `pref`, `marf`, `csid`, `purp`, and the parts `cntp.account_number`, `cntp.bic`, `cntp.name`, `cntp.city`, `remi.code`, `remi.issuer`, `remi.remittance_info`, `ultc.name`, `ultc.id`, `ultd.name`, `ultd.id` |
 | `D_REGIOBANK` | `account_number`, `name`, `address`, `iban`, `remittance_info`, `description`, `reference` |
+| `D_MBANK` | `transaction_code`, `iph_id`, `tnr` |
 
 A text of another bank gives no value and no fault. An unknown kind is a fault.
 
@@ -501,7 +511,7 @@ It writes no sign-on request, no bill pay and no QIF payee list.
 - **The OFX code keeps one image.** The reader keeps the first `IMAGEDATA` aggregate of a transaction and counts the rest. The writer writes that one image.
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
-- **Only four bank dialects exist.** The package reads Rabobank, ABN AMRO, ING and Regiobank. Python `mt940` 5.1.3 also reads mBank, ASN Bank and GLS. A caller reads other banks from the `:86:` text.
+- **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.
 - **There is no transcoding.** A byte above 127 passes through into the text. Node `@fin.cx/mt940` fixes the encoding of each field.
 - **The OFX reader reads no security list and no profile.** The
   securities of an investment statement come as positions only.
