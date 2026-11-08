@@ -3068,6 +3068,45 @@ fn run_tree_write(tree: bank_statement::OfxNode[>..]&, opts: bank_statement::Ofx
     return bank_statement::write_ofx_tree(tree, opts, lim, out).kind;
 }
 
+fn test_camt_reason() {
+    var buf: u8[>..] = [];
+    assert(bank_statement::reason_known("AC04", buf));
+    assert(bank_statement::reason_known("ac04", buf));
+    assert(!bank_statement::reason_known("ZZZZ", buf));
+    assert(!bank_statement::reason_known("AC041", buf));
+    assert(bank_statement::reason_name("AC04", buf) == "Closed Account Number");
+    assert(bank_statement::reason_name("am04", buf) == "Insufficient Funds");
+    assert(bank_statement::reason_name("ZZZZ", buf) == "Unknown reason code");
+    // The policy names the action for the transient codes only.
+    assert(bank_statement::reason_action("AC04", buf) == "return");
+    assert(bank_statement::reason_action("AM04", buf) == "retry");
+    assert(bank_statement::reason_action("narr", buf) == "ignore");
+    assert(bank_statement::reason_action("ZZZZ", buf) == "return");
+    // The marks turn around in both forms.
+    let m1, ok1 = bank_statement::reverse_mark("CRDT");
+    assert(ok1 && m1 == "DBIT");
+    let m2, ok2 = bank_statement::reverse_mark("D");
+    assert(ok2 && m2 == "C");
+    let m3, ok3 = bank_statement::reverse_mark("x");
+    assert(!ok3);
+    // The reversing entry turns the mark and the signs around.
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::CamtOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf2: u8[>..] = [];
+    var hd = bank_statement::CamtHeader { .. };
+    assert(bank_statement::parse_camt(CAMT53, lim, opts, hd, sts, ens, bals, buf2).kind == 0);
+    assert(ens.len > 0);
+    let rv, ok = bank_statement::reversal_of(ens[0]);
+    assert(ok);
+    assert(rv.mark == "D" && ens[0].mark == "C");
+    assert(rv.amount.minor == -ens[0].amount.minor);
+    let nr, ok2 = bank_statement::reversal_of(ens[0]);
+    assert(ok2 && nr.amount.minor == -ens[0].amount.minor);
+}
+
 fn test_field86() {
     let lim = bank_statement::default_limits();
     var extra: bank_statement::DialectValue[>..] = [];
@@ -3762,6 +3801,7 @@ fn main() {
     test_ofx_seclist();
     test_country();
     test_ofx_profile();
+    test_camt_reason();
     test_field86();
     test_ofx_charset();
     test_ofx_net();

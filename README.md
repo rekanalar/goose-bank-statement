@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.23.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.24.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -47,6 +47,8 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `ofx_fetch(request, opts, lim, out, buf)` | sends an OFX request over HTTPS with `curl` and appends the body; gives the status code and a `Fault` |
 | `parse_dialect(kind, text, lim, values, buffer)` | reads the named values of a `:86:` text of a Dutch bank; gives a `Fault` |
 | `parse_field_86(text, lim, values, buffer)` | reads the GVC codes and the slash tags of any `:86:` text; gives a `Field86` and a `Fault` |
+| `reason_known(code, buf)`, `reason_name(code, buf)`, `reason_action(code, buf)` | look a return reason code up in the ISO 20022 table of 41 codes |
+| `reverse_mark(mark)`, `reversal_of(entry)` | give the opposite mark and the reversing entry |
 | `parse_qif_lists(input, lim, opts, items, budgets, lines, extra, prices)` | reads the list sections of a QIF file into typed records; gives a `Fault` |
 | `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
 | `write_qif_lists(items, budgets, lines, extra, prices, opts, lim, out)` | appends the typed list records of a QIF file to `out`; gives a `Fault` |
@@ -457,6 +459,21 @@ let opts = bank_statement::Mt940Options { .. };
 let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
 if f.kind != 0 { print(bank_statement::kind_name(f.kind), " at line ", f.line); }
 ```
+
+#### The return reason codes
+
+The return reason codes of the ISO 20022 messages name why a payment came back.
+Python `camt053` holds a table of them. This package holds the same 41 codes and names, and the action policy of the reference.
+
+`reason_known` tells whether a code is known. `reason_name` gives the name, and the text `Unknown reason code` for a code that the table holds not.
+`reason_action` gives the action that the policy names: `return`, `retry` or `ignore`.
+The transient codes retry, the narrative codes stay without action, and every other code returns.
+
+`reverse_mark` gives the opposite credit or debit mark. It takes the long form `CRDT` and `DBIT` and the short form `C` and `D`.
+An unknown mark is false.
+
+`reversal_of` gives the reversing entry. The mark turns around, and so do the signs of the amount, of the total and of the batch total.
+Everything else stays. The most negative 64-bit amount gives no reversal, because its sign cannot turn.
 
 #### The structured values of any :86: text
 

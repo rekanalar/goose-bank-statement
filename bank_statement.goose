@@ -37,5 +37,6 @@ import ofx_spec;
 import ofx_net;
 import ofx_tree;
 import field86;
+import camt_reason;
 import camt;
 import transcode;
