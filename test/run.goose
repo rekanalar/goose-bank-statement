@@ -3488,6 +3488,72 @@ fn test_ofx_net() {
     assert(f4.kind == bank_statement::F_SYNTAX && c4 == 0);
 }
 
+fn test_ofx_tree_repeats() {
+    let lim = bank_statement::default_limits();
+    // Two transactions in one list. The list may hold many.
+    var two: bank_statement::OfxNode[>..] = [
+        tree_node(0, "SIGNONMSGSRSV1", ""), tree_node(1, "SONRS", ""), tree_node(2, "STATUS", ""),
+        tree_node(3, "CODE", "0"), tree_node(3, "SEVERITY", "INFO"),
+        tree_node(2, "DTSERVER", "20200101120000"), tree_node(2, "LANGUAGE", "ENG"),
+        tree_node(0, "BANKMSGSRSV1", ""), tree_node(1, "STMTTRNRS", ""), tree_node(2, "TRNUID", "T1"),
+        tree_node(2, "STATUS", ""), tree_node(3, "CODE", "0"), tree_node(3, "SEVERITY", "INFO"),
+        tree_node(2, "STMTRS", ""), tree_node(3, "CURDEF", "USD"),
+        tree_node(3, "BANKACCTFROM", ""), tree_node(4, "BANKID", "987654321"),
+        tree_node(4, "ACCTID", "12345"), tree_node(4, "ACCTTYPE", "CHECKING"),
+        tree_node(3, "BANKTRANLIST", ""), tree_node(4, "DTSTART", "20200101000000"),
+        tree_node(4, "DTEND", "20200102000000"),
+        tree_node(4, "STMTTRN", ""), tree_node(5, "TRNTYPE", "DEBIT"), tree_node(5, "DTPOSTED", "20200101000000"),
+        tree_node(5, "TRNAMT", "-1.00"), tree_node(5, "FITID", "1"),
+        tree_node(4, "STMTTRN", ""), tree_node(5, "TRNTYPE", "DEBIT"), tree_node(5, "DTPOSTED", "20200101000000"),
+        tree_node(5, "TRNAMT", "-2.00"), tree_node(5, "FITID", "2"),
+        tree_node(3, "LEDGERBAL", ""), tree_node(4, "BALAMT", "1.00"), tree_node(4, "DTASOF", "20200102000000"),
+    ];
+    var out: u8[>..] = [];
+    let w = bank_statement::write_ofx_tree(two, ofx_wopts(102), lim, out);
+    if w.kind != 0 { print("FAIL repeat ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
+    assert(w.kind == 0);
+    // The output holds both transactions.
+    var tree: bank_statement::OfxNode[>..] = [];
+    var buf: u8[>..] = [];
+    assert(bank_statement::parse_ofx_tree(out, lim, tree, buf).kind == 0);
+    assert(tree.len == two.len);
+    // Two aggregates that exclude each other fault. The specification
+    // names one of them in the aggregate of a transaction.
+    var excl: bank_statement::OfxNode[>..] = [
+        tree_node(0, "SIGNONMSGSRSV1", ""), tree_node(1, "SONRS", ""), tree_node(2, "STATUS", ""),
+        tree_node(3, "CODE", "0"), tree_node(3, "SEVERITY", "INFO"),
+        tree_node(2, "DTSERVER", "20200101120000"), tree_node(2, "LANGUAGE", "ENG"),
+        tree_node(0, "BANKMSGSRSV1", ""), tree_node(1, "STMTTRNRS", ""), tree_node(2, "TRNUID", "T1"),
+        tree_node(2, "STATUS", ""), tree_node(3, "CODE", "0"), tree_node(3, "SEVERITY", "INFO"),
+        tree_node(2, "STMTRS", ""), tree_node(3, "CURDEF", "USD"),
+        tree_node(3, "BANKACCTFROM", ""), tree_node(4, "BANKID", "987654321"),
+        tree_node(4, "ACCTID", "12345"), tree_node(4, "ACCTTYPE", "CHECKING"),
+        tree_node(3, "BANKTRANLIST", ""), tree_node(4, "DTSTART", "20200101000000"),
+        tree_node(4, "DTEND", "20200102000000"),
+        tree_node(4, "STMTTRN", ""), tree_node(5, "TRNTYPE", "DEBIT"), tree_node(5, "DTPOSTED", "20200101000000"),
+        tree_node(5, "TRNAMT", "-1.00"), tree_node(5, "FITID", "1"),
+        tree_node(5, "BANKACCTTO", ""), tree_node(6, "BANKID", "123456789"),
+        tree_node(6, "ACCTID", "54321"), tree_node(6, "ACCTTYPE", "SAVINGS"),
+        tree_node(5, "CCACCTTO", ""), tree_node(6, "ACCTID", "99999"),
+        tree_node(3, "LEDGERBAL", ""), tree_node(4, "BALAMT", "1.00"), tree_node(4, "DTASOF", "20200102000000"),
+    ];
+    var o3: u8[>..] = [];
+    let w3 = bank_statement::write_ofx_tree(excl, ofx_wopts(102), lim, o3);
+    assert(w3.kind == bank_statement::F_SYNTAX);
+    assert(w3.detail == "two aggregates that exclude each other stand in one aggregate");
+    // An element that may come only once faults when it comes twice.
+    var dup: bank_statement::OfxNode[>..] = [
+        tree_node(0, "SIGNONMSGSRSV1", ""), tree_node(1, "SONRS", ""), tree_node(2, "STATUS", ""),
+        tree_node(3, "CODE", "0"), tree_node(3, "SEVERITY", "INFO"),
+        tree_node(2, "DTSERVER", "20200101120000"), tree_node(2, "LANGUAGE", "ENG"),
+        tree_node(2, "LANGUAGE", "FRA"),
+    ];
+    var o2: u8[>..] = [];
+    let w2 = bank_statement::write_ofx_tree(dup, ofx_wopts(102), lim, o2);
+    assert(w2.kind == bank_statement::F_SYNTAX);
+    assert(w2.detail == "the element may come only once in this aggregate");
+}
+
 fn test_ofx_tree() {
     let lim = bank_statement::default_limits();
     var tree: bank_statement::OfxNode[>..] = [];
@@ -4088,6 +4154,7 @@ fn main() {
     test_camt_reason();
     test_field86();
     test_money_bridge();
+    test_ofx_tree_repeats();
     test_ofx_charset();
     test_ofx_net();
     test_ofx_tree();

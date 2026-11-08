@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.30.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.31.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import finance from "rekanalar/goose-finance@v0.1.0";
@@ -685,8 +685,9 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The total block sums take the account currency.** The sums of `TtlNtries` hold no currency of their own. When the account names none, the reader keeps the count.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **The investment statement, the sign-on request and bill pay have no typed record.** The element tree writer writes them. It checks each element against the rules. Python `ofxtools` and Go `ofxgo` model each element.
-- **The element rule check has blind spots.** It does not check how many times an element may repeat. It does not check two aggregates that exclude each other. A row with no rule and a private `X` aggregate stay unchecked inside.
-- **The OFX writer writes bank statements or credit card statements, not both in one call.**
+- **A private aggregate stays unchecked inside.** A name with no rule that starts with `X` is a private aggregate. The check does not count how often a list repeats.
+- **The exclusive aggregates come from the OFX specification.** Python `ofxtools` and Go `ofxgo` do not check them. The writer refuses `BANKACCTTO` with `CCACCTTO`, and the other pairs of the specification, in one aggregate.
+- **The credit card flag rules over every statement.** The flag `credit_card` puts all statements into the credit card set. Without it, each statement goes by its own account kind.
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.
 - **The MT940 and QIF transcode needs the caller to name the charset.** Neither file carries one.

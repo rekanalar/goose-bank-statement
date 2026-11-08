@@ -192,6 +192,57 @@ fn rule_elem(row: const u8[:], n: i64) -> const u8[:], u8, bool, const u8[:], bo
     return "", 'U', false, "", false;
 }
 
+// rule_at gives the position of the element of a row that carries the
+// name. It gives -1 when the row holds no such element.
+fn rule_at(row: const u8[:], name: const u8[:]) -> i64 {
+    var k: i64 = 0;
+    var more = elem_more(row, k);
+    while more {
+        let t, _, _, _, _ = rule_elem(row, k);
+        if compare_bytes(name, t) == 0 { return k; }
+        k += 1;
+        more = elem_more(row, k);
+    }
+    return -1;
+}
+
+// The aggregates of the OFX specification that exclude each other. The
+// specification names one of them in each aggregate, and the reference
+// libraries do not check it. The groups below hold the names of one
+// such choice.
+const OFX_EXCLUSIVE_GROUPS: const u8[:][] = [
+    "BANKACCTFROM/CCACCTFROM",
+    "BANKACCTTO/CCACCTTO",
+    "BANKACCTINFO/CCACCTINFO",
+    "STOCKINFO/MFINFO/DEBTINFO/OPTINFO/OTHERINFO",
+    "INVBUY/INVSELL",
+    "BUYMF/SELLMF",
+    "BUYOPT/SELLOPT",
+    "BUYOTHER/SELLOTHER",
+    "BUYDEBT/SELLDEBT",
+    "BUYSTOCK/SELLSTOCK",
+];
+
+// exclusive_group gives the group of an aggregate. It gives -1 when the
+// name stands in no group.
+fn exclusive_group(name: const u8[:]) -> i64 {
+    var g: i64 = 0;
+    while g < OFX_EXCLUSIVE_GROUPS.len {
+        let group = OFX_EXCLUSIVE_GROUPS[g];
+        var start: i64 = 0;
+        var i: i64 = 0;
+        while i <= group.len {
+            if i == group.len || group[i] == '/' {
+                if compare_bytes(name, group[start..i]) == 0 { return g; }
+                start = i + 1;
+            }
+            i += 1;
+        }
+        g += 1;
+    }
+    return -1;
+}
+
 // arg_num reads the number out of an argument text.
 fn arg_num(arg: const u8[:]) -> i64 {
     var v: i64 = 0;
@@ -299,10 +350,12 @@ fn check_open_end(row: const u8[:], pos: i64, name: const u8[:]) -> Fault {
 
 // push_opaque puts a marker on the stack. The checker does not look
 // inside a subtree with a marker.
-fn push_opaque(rows: i64[>..]&, poss: i64[>..]&, depths: i64[>..]&, d: i64) {
+fn push_opaque(rows: i64[>..]&, poss: i64[>..]&, depths: i64[>..]&, reps: i64[>..]&, gmask: i64[>..]&, d: i64) {
     rows.push(-1);
     poss.push(0);
     depths.push(d);
+    reps.push(-1);
+    gmask.push(0);
 }
 
 // check_ofx_tree checks every node of a tree against the rule table of
@@ -317,6 +370,11 @@ fn check_ofx_tree(tree: OfxNode[>..]&, lim: Limits&) -> Fault {
     var rows: i64[>..] = [root];
     var poss: i64[>..] = [0];
     var depths: i64[>..] = [-1];
+    // The position of the repeatable element that the frame holds.
+    var reps: i64[>..] = [-1];
+    // The groups of the exclusive aggregates that each frame holds.
+    // Each bit names one group.
+    var gmask: i64[>..] = [0];
     var i: i64 = 0;
     while i < tree.len {
         let n = tree[i];
@@ -331,6 +389,8 @@ fn check_ofx_tree(tree: OfxNode[>..]&, lim: Limits&) -> Fault {
             rows.pop();
             poss.pop();
             depths.pop();
+            reps.pop();
+            gmask.pop();
         }
         if rows.len == 0 {
             return fault(F_SYNTAX, i + 1, 0, n.name, "an element stands outside the OFX root");
@@ -349,7 +409,7 @@ fn check_ofx_tree(tree: OfxNode[>..]&, lim: Limits&) -> Fault {
         }
         let row = OFX_RULE_ROWS[r];
         if row.len == 0 {
-            push_opaque(rows, poss, depths, d);
+            push_opaque(rows, poss, depths, reps, gmask, d);
             i += 1;
             continue;
         }
@@ -377,13 +437,55 @@ fn check_ofx_tree(tree: OfxNode[>..]&, lim: Limits&) -> Fault {
         if !found {
             let private = n.name.len > 0 && n.name[0] == 'X' && find_rule(n.name) < 0;
             if private {
-                push_opaque(rows, poss, depths, d);
+                push_opaque(rows, poss, depths, reps, gmask, d);
                 i += 1;
                 continue;
+            }
+            // The element may repeat when the frame holds it as the
+            // repeatable one and no other element came after it.
+            let rep = reps[top];
+            if rep >= 0 && poss[top] == rep + 1 {
+                let rt, rk, rq, ra, _ = rule_elem(row, rep);
+                if rk == 'L' && compare_bytes(n.name, rt) == 0 {
+                    // A repeat of a list of aggregates. The position
+                    // stays, so the next element of the row still
+                    // comes after it.
+                    if !has_children {
+                        return fault(F_SYNTAX, i + 1, 0, n.name, "an aggregate holds no children");
+                    }
+                    let child = find_rule(ra);
+                    rows.push(child);
+                    poss.push(0);
+                    depths.push(d);
+                    reps.push(-1);
+                    gmask.push(0);
+                    i += 1;
+                    continue;
+                }
+            }
+            // The element stands at an earlier place of the row. It
+            // may not come twice.
+            let at = rule_at(row, n.name);
+            if at >= 0 {
+                let _, ak, _, _, _ = rule_elem(row, at);
+                if ak != 'L' {
+                    return fault(F_SYNTAX, i + 1, 0, n.name, "the element may come only once in this aggregate");
+                }
             }
             return fault(F_UNKNOWN_TAG, i + 1, 0, n.name, "the element is not allowed in this aggregate");
         }
         poss[top] = k + 1;
+        if kind == 'L' { reps[top] = k; } else { reps[top] = -1; }
+        // Two aggregates of one exclusive group may not stand in the
+        // same aggregate.
+        let gid = exclusive_group(n.name);
+        if gid >= 0 {
+            let bit = 1 << gid;
+            if (gmask[top] & bit) != 0 {
+                return fault(F_SYNTAX, i + 1, 0, n.name, "two aggregates that exclude each other stand in one aggregate");
+            }
+            gmask[top] = gmask[top] | bit;
+        }
         if kind == 'A' || kind == 'L' {
             if !has_children {
                 return fault(F_SYNTAX, i + 1, 0, n.name, "an aggregate holds no children");
@@ -392,6 +494,8 @@ fn check_ofx_tree(tree: OfxNode[>..]&, lim: Limits&) -> Fault {
             rows.push(child);
             poss.push(0);
             depths.push(d);
+            reps.push(-1);
+            gmask.push(0);
         } else {
             if has_children {
                 return fault(F_SYNTAX, i + 1, 0, n.name, "a leaf holds children");
@@ -410,6 +514,8 @@ fn check_ofx_tree(tree: OfxNode[>..]&, lim: Limits&) -> Fault {
         rows.pop();
         poss.pop();
         depths.pop();
+        reps.pop();
+        gmask.pop();
     }
     return no_fault();
 }
