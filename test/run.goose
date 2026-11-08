@@ -2760,6 +2760,84 @@ fn test_write_ofx() {
     assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, r8).kind == bank_statement::F_SYNTAX);
 }
 
+fn test_write_ofx_mixed() {
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::OfxOptions { .. };
+    // One bank statement and one credit card statement.
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    assert(bank_statement::parse_ofx(OFX_V1, lim, ropts, sts, ens, bals, notes, buf).kind == 0);
+    assert(!sts[0].credit_card);
+    var csts: bank_statement::Statement[>..] = [];
+    var cens: bank_statement::Entry[>..] = [];
+    var cbals: bank_statement::Balance[>..] = [];
+    var cnotes: bank_statement::Note[>..] = [];
+    var cbuf: u8[>..] = [];
+    assert(bank_statement::parse_ofx(OFX_CC, lim, ropts, csts, cens, cbals, cnotes, cbuf).kind == 0);
+    assert(csts[0].credit_card);
+    // Merge the credit card statement into the same arrays.
+    csts[0].entry_start = ens.len as i32;
+    csts[0].balance_start = bals.len as i32;
+    var i: i64 = 0;
+    while i < cens.len { ens.push(cens[i]); i += 1; }
+    i = 0;
+    while i < cbals.len { bals.push(cbals[i]); i += 1; }
+    csts[0].entry_count = cens.len as i32;
+    csts[0].balance_count = cbals.len as i32;
+    sts.push(csts[0]);
+    // One call writes both message sets, bank first.
+    var out: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, out).kind == 0);
+    let b = find(out, "<BANKMSGSRSV1>");
+    let c = find(out, "<CREDITCARDMSGSRSV1>");
+    assert(b > 0 && c > b);
+    // The output reads back to the same two statements.
+    var s2: bank_statement::Statement[>..] = [];
+    var e2: bank_statement::Entry[>..] = [];
+    var b2: bank_statement::Balance[>..] = [];
+    var n2: bank_statement::Note[>..] = [];
+    var u2: u8[>..] = [];
+    assert(bank_statement::parse_ofx(out, lim, ropts, s2, e2, b2, n2, u2).kind == 0);
+    assert(s2.len == 2);
+    assert(!s2[0].credit_card && s2[1].credit_card);
+    assert(s2[0].account == sts[0].account && s2[1].account == csts[0].account);
+    // The credit card flag alone still puts every statement into one set.
+    var one: u8[>..] = [];
+    var wopts = ofx_wopts(102);
+    wopts.credit_card = true;
+    assert(bank_statement::write_ofx(sts, ens, notes, wopts, lim, one).kind == 0);
+    assert(find(one, "<BANKMSGSRSV1>") < 0 && find(one, "<CREDITCARDMSGSRSV1>") > 0);
+}
+
+const OFX_CC: const u8[:] = """
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1><SONRS><STATUS><CODE>0<SEVERITY>INFO</STATUS><DTSERVER>20201101120000</DTSERVER><LANGUAGE>ENG</LANGUAGE></SONRS></SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS><TRNUID>CC-1</TRNUID>
+<STATUS><CODE>0<SEVERITY>INFO</STATUS>
+<CCSTMTRS><CURDEF>USD</CURDEF><CCACCTFROM><ACCTID>4111111111111111</ACCTID></CCACCTFROM>
+<BANKTRANLIST><DTSTART>20201001000000<DTEND>20201031000000</DTEND>
+<STMTTRN><TRNTYPE>PAYMENT<DTPOSTED>20201005120000<TRNAMT>-25.50<FITID>CC1<NAME>Store</NAME></STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL><BALAMT>-120.00<DTASOF>20201031120000</DTASOF></LEDGERBAL>
+</CCSTMTRS></CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>
+""";
+
 fn test_write_mt940() {
     let lim = bank_statement::default_limits();
     let ropts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true, style: 0 };
@@ -3982,6 +4060,7 @@ fn main() {
     test_ofx_tree();
     test_qif_item_faults();
     test_write_ofx();
+    test_write_ofx_mixed();
     test_write_mt940();
     test_ofx_extra();
     test_ofx_extra_faults();

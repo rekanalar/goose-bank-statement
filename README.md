@@ -561,7 +561,7 @@ It also writes the extra fields, such as the `A` lines. Each address line is one
 The splits must add up to the amount, or the writer gives `F_TOTAL`.
 A field code is a printable byte. It is not `!` and not `^`.
 
-**OFX.** `write_ofx` writes bank statements. With `credit_card` it writes credit card statements.
+**OFX.** `write_ofx` writes bank statements, credit card statements, or both in one call. The flag `credit_card` puts every statement into the credit card set. Without the flag, each statement goes by its own account kind.
 Version 1.x writes the header with CRLF and a blank line, and leaves the leaf tags open. The default version is 1.0.2.
 Version 2.x writes the XML declaration, the OFX instruction and closed leaves.
 

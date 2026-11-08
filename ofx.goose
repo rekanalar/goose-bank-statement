@@ -194,6 +194,7 @@ fn ofx_statement(nodes: SgmlNode[>..]&, id: i32, wrap: const u8[:], lim: Limits&
         } else {
             let acct = sgml_child(nodes, id, "CCACCTFROM");
             if acct >= 0 {
+                statements[cur].credit_card = true;
                 let ai = sgml_child(nodes, acct, "ACCTID");
                 if ai >= 0 { statements[cur].account = sgml_text_of(nodes, ai, buf); }
             }

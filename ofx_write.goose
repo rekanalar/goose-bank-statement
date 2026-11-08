@@ -452,7 +452,7 @@ fn statement_currency(st: Statement, entries: Entry[>..]&, opts: OfxWriteOptions
 
 fn write_statement(out: u8[>..]&, w: OfxForm, st: Statement, entries: Entry[>..]&,
                    notes: Note[>..]&, opts: OfxWriteOptions&, lim: Limits&) -> Fault {
-    let cc = opts.credit_card;
+    let cc = opts.credit_card || st.credit_card;
     var wrap: const u8[:] = "STMTTRNRS";
     var body: const u8[:] = "STMTRS";
     if cc { wrap = "CCSTMTTRNRS"; body = "CCSTMTRS"; }
@@ -555,6 +555,30 @@ fn put_ofx_header(out: u8[>..]&, v: i32) {
 
 // write_ofx appends the statements as an OFX file. All statements are
 // bank statements, or all are credit card statements.
+// write_set writes the statements of one account kind into one message
+// set. A bank statement lands in the bank set. A credit card statement
+// lands in the credit card set. The flag opts.credit_card puts every
+// statement into the credit card set.
+fn write_set(out: u8[>..]&, w: OfxForm, set: const u8[:], statements: Statement[>..]&, entries: Entry[>..]&,
+             notes: Note[>..]&, opts: OfxWriteOptions, lim: Limits&) -> Fault {
+    var wrote: i64 = 0;
+    var i: i64 = 0;
+    while i < statements.len {
+        let is_cc = opts.credit_card || statements[i].credit_card;
+        if set == "CREDITCARDMSGSRSV1" && !is_cc { i += 1; continue; }
+        if set == "BANKMSGSRSV1" && is_cc { i += 1; continue; }
+        if wrote == 0 { open_tag(out, w, set, 1); }
+        let e = write_statement(out, w, statements[i], entries, notes, opts, lim);
+        if e.kind != F_NONE { return e; }
+        let s = check_size(out, lim);
+        if s.kind != F_NONE { return s; }
+        wrote += 1;
+        i += 1;
+    }
+    if wrote > 0 { close_tag(out, w, set, 1); }
+    return no_fault();
+}
+
 fn write_ofx(statements: Statement[>..]&, entries: Entry[>..]&,
              notes: Note[>..]&, opts: OfxWriteOptions, lim: Limits&, out: u8[>..]&) -> Fault {
     var v = opts.version;
@@ -588,19 +612,19 @@ fn write_ofx(statements: Statement[>..]&, entries: Entry[>..]&,
     }
     close_tag(out, w, "SONRS", 2);
     close_tag(out, w, "SIGNONMSGSRSV1", 1);
-    var set: const u8[:] = "BANKMSGSRSV1";
-    if opts.credit_card { set = "CREDITCARDMSGSRSV1"; }
+    // The flag names every statement a credit card statement. Without
+    // it, each statement goes by its own account kind. The bank set
+    // comes before the credit card set, as the reference writer puts it.
     if statements.len > 0 {
-        open_tag(out, w, set, 1);
-        var i: i64 = 0;
-        while i < statements.len {
-            let e = write_statement(out, w, statements[i], entries, notes, opts, lim);
+        if opts.credit_card {
+            let e = write_set(out, w, "CREDITCARDMSGSRSV1", statements, entries, notes, opts, lim);
             if e.kind != F_NONE { return e; }
-            let s = check_size(out, lim);
-            if s.kind != F_NONE { return s; }
-            i += 1;
+        } else {
+            let e = write_set(out, w, "BANKMSGSRSV1", statements, entries, notes, opts, lim);
+            if e.kind != F_NONE { return e; }
+            let e2 = write_set(out, w, "CREDITCARDMSGSRSV1", statements, entries, notes, opts, lim);
+            if e2.kind != F_NONE { return e2; }
         }
-        close_tag(out, w, set, 1);
     }
     close_tag(out, w, "OFX", 0);
     return check_size(out, lim);

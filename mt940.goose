@@ -226,6 +226,7 @@ struct Statement {
     net_amount: Amount,
     has_net: bool,
     net_credit: bool,
+    credit_card: bool,
     debit_count: i64,
     debit_total: Amount,
     has_debit_total: bool,
@@ -314,6 +315,7 @@ fn new_statement() -> Statement {
         reporting_source: "", page_number: "", last_page: false,
         all_count: 0, all_total: z, has_all_total: false,
         net_amount: z, has_net: false, net_credit: false,
+        credit_card: false,
         debit_count: 0, debit_total: z, has_debit_total: false,
         credit_count: 0, credit_total: z, has_credit_total: false,
     };
