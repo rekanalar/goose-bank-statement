@@ -2767,6 +2767,259 @@ fn test_ofx_extra_faults() {
     assert(ofx_kind("<CURRENCY><CURSYM>EUR</CURRENCY>") == bank_statement::F_AMOUNT);
 }
 
+const OFX_EXTRA2: const u8[:] = """
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:NONE
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX><SIGNONMSGSRSV1><SONRS><STATUS><CODE>0<SEVERITY>INFO</STATUS><DTSERVER>20200101120000<LANGUAGE>ENG</SONRS></SIGNONMSGSRSV1>
+<BANKMSGSRSV1><STMTTRNRS><TRNUID>7<STATUS><CODE>0<SEVERITY>INFO</STATUS>
+<STMTRS><CURDEF>USD<BANKACCTFROM><BANKID>111111111<ACCTID>999999<ACCTTYPE>SAVINGS</BANKACCTFROM>
+<BANKTRANLIST><DTSTART>20200101<DTEND>20200131
+<STMTTRN><TRNTYPE>XFER<DTPOSTED>20200105<TRNAMT>-50.00<FITID>B1<SIC>5411<NAME>Move
+<BANKACCTTO><BANKID>222222222<BRANCHID>12<ACCTID>5550001<ACCTTYPE>CHECKING<ACCTKEY>K1</BANKACCTTO>
+<MEMO>to checking
+<IMAGEDATA><IMAGETYPE>TRANSACTION<IMAGEREF>https://bank.example/img?a=1&amp;b=2<IMAGEREFTYPE>URL<IMAGEDELAY>3<IMAGETTL>30<CHECKSUP>FRONTONLY</IMAGEDATA>
+<IMAGEDATA><IMAGETYPE>STATEMENT<IMAGEREF>second<IMAGEREFTYPE>OPAQUE</IMAGEDATA>
+<INV401KSOURCE>MATCH</STMTTRN>
+<STMTTRN><TRNTYPE>PAYMENT<DTPOSTED>20200106<TRNAMT>-20.00<FITID>B2<CCACCTTO><ACCTID>4111000011112222</CCACCTTO>
+<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>FORMURL<DTIMAGEAVAIL>20200201</IMAGEDATA></STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL><BALAMT>100.00<DTASOF>20200131</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>
+""";
+
+fn more_equal(a: bank_statement::Entry, b: bank_statement::Entry) {
+    let x = a.ofx;
+    let y = b.ofx;
+    assert(x.sic == y.sic && x.has_sic == y.has_sic);
+    assert(x.acct_to_kind == y.acct_to_kind);
+    assert(x.acct_to.bank_id == y.acct_to.bank_id && x.acct_to.acct_id == y.acct_to.acct_id);
+    assert(x.acct_to.acct_type == y.acct_to.acct_type && x.acct_to.acct_key == y.acct_to.acct_key);
+    assert(x.acct_to.branch_id == y.acct_to.branch_id);
+    assert(x.image.has_delay == y.image.has_delay && x.image.has_ttl == y.image.has_ttl);
+    assert(x.image.avail.day == y.image.avail.day);
+    assert(x.inv401k_source == y.inv401k_source);
+    assert(x.image.kind == y.image.kind && x.image.ref == y.image.ref && x.image.ref_kind == y.image.ref_kind);
+    assert(x.image.delay == y.image.delay && x.image.ttl == y.image.ttl && x.image.check_sup == y.image.check_sup);
+    assert(x.image.avail.year == y.image.avail.year && x.image.avail.month == y.image.avail.month);
+}
+
+fn test_ofx_more() {
+    let lim = bank_statement::default_limits();
+    let ropts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(OFX_EXTRA2, lim, ropts, sts, ens, bals, notes, buf);
+    if f.kind != 0 { print("FAIL ofx more ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(ens.len == 2);
+    let x = ens[0].ofx;
+    assert(x.has_sic && x.sic == 5411 && x.inv401k_source == "MATCH");
+    assert(x.acct_to_kind == 'B' && x.acct_to.bank_id == "222222222" && x.acct_to.branch_id == "12");
+    assert(x.acct_to.acct_id == "5550001" && x.acct_to.acct_type == "CHECKING" && x.acct_to.acct_key == "K1");
+    // Two images: the first is kept and the count says two.
+    assert(x.image_count == 2 && x.image.kind == "TRANSACTION" && x.image.ref == "https://bank.example/img?a=1&b=2");
+    assert(x.image.ref_kind == "URL" && x.image.delay == 3 && x.image.ttl == 30 && x.image.check_sup == "FRONTONLY");
+    let y = ens[1].ofx;
+    assert(y.acct_to_kind == 'C' && y.acct_to.acct_id == "4111000011112222");
+    assert(y.image_count == 1 && y.image.avail.year == 2020 && y.image.avail.month == 2 && !y.image.has_delay);
+    var v = 0;
+    while v < 2 {
+        var o = ofx_wopts(102);
+        if v == 1 { o = ofx_wopts(211); o.indent = true; }
+        var out: u8[>..] = [];
+        let w = bank_statement::write_ofx(sts, ens, notes, o, lim, out);
+        if w.kind != 0 { print("FAIL write more ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
+        assert(w.kind == 0);
+        assert(find(out, "a=1&amp;b=2") > 0);
+        var s2: bank_statement::Statement[>..] = [];
+        var e2: bank_statement::Entry[>..] = [];
+        var b2: bank_statement::Balance[>..] = [];
+        var n2: bank_statement::Note[>..] = [];
+        var u2: u8[>..] = [];
+        let g = bank_statement::parse_ofx(out, lim, ropts, s2, e2, b2, n2, u2);
+        if g.kind != 0 { print("FAIL reread more ", bank_statement::kind_name(g.kind), " ", g.tag, " ", g.detail, "\n"); }
+        assert(g.kind == 0);
+        more_equal(ens[0], e2[0]);
+        more_equal(ens[1], e2[1]);
+        assert(e2[0].ofx.image_count == 1);
+        v += 1;
+    }
+    // Refusals.
+    let wo = ofx_wopts(102);
+    ens[0].ofx.inv401k_source = "OTHER";
+    var r1: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r1).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.inv401k_source = "MATCH";
+    ens[0].ofx.acct_to.acct_type = "GOLD";
+    var r2: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r2).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.acct_to.acct_type = "CHECKING";
+    ens[0].ofx.acct_to.acct_id = "1234567890123456789012x";
+    var r3: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r3).kind == bank_statement::F_LIMIT);
+    ens[0].ofx.acct_to.acct_id = "5550001";
+    ens[0].ofx.image.ref = "a\nb";
+    var r4: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r4).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.image.ref = "ok";
+    ens[0].ofx.image.avail = bank_statement::Date { year: 2020, month: 2, day: 1 };
+    var r5: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r5).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.image.avail = bank_statement::no_date();
+    ens[0].ofx.image.check_sup = "BOTH";
+    var r7: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r7).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.image.check_sup = "FRONTONLY";
+    ens[0].ofx.image.delay = -1;
+    var r8: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r8).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.image.delay = 3;
+    ens[0].ofx.sic = -1;
+    var r9: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r9).kind == bank_statement::F_SYNTAX);
+    ens[0].ofx.sic = 5411;
+    ens[0].ofx.image.kind = "PHOTO";
+    var r6: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r6).kind == bank_statement::F_SYNTAX);
+}
+
+fn test_ofx_more_faults() {
+    assert(ofx_kind("<SIC>12ab") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<INV401KSOURCE>NOPE") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<BANKACCTTO><BANKID>1<ACCTID>2<ACCTTYPE>CD</BANKACCTTO><CCACCTTO><ACCTID>3</CCACCTTO>") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<IMAGEDELAY>1<DTIMAGEAVAIL>20200101</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>NET</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<IMAGEDELAY>-1</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<CHECKSUP>BOTH</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(ofx_kind("<SIC>5411<INV401KSOURCE>MATCH") == 0);
+}
+
+fn test_write_mt942_hybrid() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::Mt940Options { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    let text = ":20:HYB\n:25:ACC\n:28C:5/1\n:34F:EUR0,\n:60F:C250101EUR100,00\n:61:250102C500,00NTRFREF\n:62F:C250102EUR600,00\n";
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    if f.kind != 0 { print("FAIL hybrid read ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    var out: u8[>..] = [];
+    let w = bank_statement::write_mt940(sts, ens, lim, out);
+    if w.kind != 0 { print("FAIL hybrid write ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
+    assert(w.kind == 0);
+    assert(find(out, ":34F:EUR0,00") >= 0);
+    assert(find(out, ":60F:C250101EUR100,00") >= 0);
+    assert(find(out, ":62F:C250102EUR600,00") >= 0);
+    assert(fields_kind(out).kind == 0);
+}
+
+fn test_write_mt942_bare() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::Mt940Options { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    let text = ":20:B\n:25:ACC\n:28C:1\n:34F:EUR0,00\n:61:250102C500,00NTRFREF\n";
+    assert(bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes).kind == 0);
+    var out: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, out).kind == 0);
+    assert(out == text);
+    assert(find(out, ":13D:") < 0 && find(out, ":90") < 0);
+}
+
+fn test_write_mt942() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::Mt940Options { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    let text = ":20:INTERIM\n:21:RELATED\n:25:ACC\n:28C:5/1\n:34F:EUR0,\n:34F:EURD100,\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:61:250102D20,00NTRFREF2\n:90D:1EUR20,00\n:90C:1EUR500,00\n";
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    if f.kind != 0 { print("FAIL mt942 read ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    // The writer gives the same text back.
+    var out: u8[>..] = [];
+    let w = bank_statement::write_mt940(sts, ens, lim, out);
+    if w.kind != 0 { print("FAIL mt942 write ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
+    assert(w.kind == 0);
+    let want = ":20:INTERIM\n:21:RELATED\n:25:ACC\n:28C:5/1\n:34F:EUR0,00\n:34F:EURD100,00\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:61:250102D20,00NTRFREF2\n:90D:1EUR20,00\n:90C:1EUR500,00\n";
+    assert(out == want);
+    // The rules of the manual accept the text that the writer gives.
+    assert(fields_kind(text).kind == 0);
+    assert(fields_kind(out).kind == 0);
+    // The reader gives the same values back.
+    var s2: bank_statement::Statement[>..] = [];
+    var e2: bank_statement::Entry[>..] = [];
+    var b2: bank_statement::Balance[>..] = [];
+    var n2: bank_statement::Note[>..] = [];
+    let g = bank_statement::parse_mt940(out, lim, opts, s2, e2, b2, n2);
+    if g.kind != 0 { print("FAIL mt942 reread ", bank_statement::kind_name(g.kind), " ", g.tag, " ", g.detail, "\n"); }
+    assert(g.kind == 0);
+    let a = sts[0];
+    let b = s2[0];
+    assert(a.is_interim && b.is_interim);
+    assert(a.reference == b.reference && a.related_ref == b.related_ref);
+    assert(a.account == b.account && a.number == b.number && a.sequence == b.sequence);
+    assert(a.floor.minor == b.floor.minor && a.floor_mark == b.floor_mark);
+    assert(a.floor2.minor == b.floor2.minor && a.floor2_mark == b.floor2_mark);
+    assert(a.report_date.year == b.report_date.year && a.report_date.month == b.report_date.month);
+    assert(a.report_minutes == b.report_minutes && a.report_offset == b.report_offset);
+    assert(a.debit_count == b.debit_count && a.credit_count == b.credit_count);
+    assert(a.debit_total.minor == b.debit_total.minor && a.credit_total.minor == b.credit_total.minor);
+    assert(ens.len == 2 && e2.len == 2);
+    assert(ens[0].mark == e2[0].mark && ens[0].amount.minor == e2[0].amount.minor);
+    assert(ens[0].customer_ref == e2[0].customer_ref && ens[1].customer_ref == e2[1].customer_ref);
+    // A total that does not match the entries is a fault.
+    sts[0].debit_total.minor = 1;
+    var bad: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, bad).kind == bank_statement::F_TOTAL);
+    sts[0].debit_total.minor = 2000;
+    // An entry with a currency of its own is a fault.
+    ens[0].amount.currency = "USD";
+    var bad2: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, bad2).kind == bank_statement::F_SYNTAX);
+    ens[0].amount.currency = "EUR";
+    // A floor limit without a currency is a fault.
+    sts[0].floor.currency = "";
+    var bad3: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, bad3).kind == bank_statement::F_SYNTAX);
+    sts[0].floor.currency = "EUR";
+    // A control byte in the reference is a fault.
+    sts[0].reference = "A\x01B";
+    var bad4: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, bad4).kind == bank_statement::F_SYNTAX);
+    // A statement with an opening balance but no closing balance is a fault.
+    sts[0].reference = "INTERIM";
+    sts[0].opening.kind = 1;
+    var bad5: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, bad5).kind == bank_statement::F_SYNTAX);
+    sts[0].opening.kind = 0;
+    // A report without a floor limit is a fault.
+    sts[0].floor.currency = "";
+    var bad6: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, bad6).kind == bank_statement::F_SYNTAX);
+    sts[0].floor.currency = "EUR";
+    // A total in another currency is a fault.
+    sts[0].debit_total.currency = "USD";
+    var bad7: u8[>..] = [];
+    assert(bank_statement::write_mt940(sts, ens, lim, bad7).kind == bank_statement::F_TOTAL);
+    sts[0].debit_total.currency = "EUR";
+}
+
 fn main() {
     test_hostile();
     test_hostile_qif();
@@ -2823,6 +3076,11 @@ fn main() {
     test_write_mt940();
     test_ofx_extra();
     test_ofx_extra_faults();
+    test_ofx_more();
+    test_ofx_more_faults();
+    test_write_mt942();
+    test_write_mt942_bare();
+    test_write_mt942_hybrid();
     test_amount();
     test_amount_faults();
     test_exponent();

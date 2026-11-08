@@ -52,14 +52,6 @@ const TRNTYPES: const u8[:][] = [
 ];
 const ACCTTYPES: const u8[:][] = ["CHECKING", "SAVINGS", "MONEYMRKT", "CREDITLINE", "CD"];
 
-// in_list tells whether the text is one of the words.
-fn in_list(words: const u8[:][]&, s: const u8[:]) -> bool {
-    for w in words {
-        if w == s { return true; }
-    }
-    return false;
-}
-
 fn version_ok(v: i32) -> bool {
     return v == 100 || v == 102 || v == 103 || v == 151 || v == 160
         || v == 200 || v == 201 || v == 202 || v == 203 || v == 210 || v == 211 || v == 220;
@@ -271,6 +263,80 @@ fn write_rate(out: u8[>..]&, w: OfxForm, e: Entry, depth: i64, lim: Limits&) -> 
     return no_fault();
 }
 
+// write_acct_to writes a BANKACCTTO or a CCACCTTO aggregate.
+fn write_acct_to(out: u8[>..]&, w: OfxForm, x: OfxEntry, depth: i64, lim: Limits&) -> Fault {
+    let a = x.acct_to;
+    if x.acct_to_kind == 'B' {
+        if !in_list(ACCTTYPES, a.acct_type) { return fault(F_SYNTAX, 0, 0, "ACCTTYPE", "unknown account type"); }
+        open_tag(out, w, "BANKACCTTO", depth);
+        var f = leaf(out, w, "BANKID", a.bank_id, 9, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+        f = opt_leaf(out, w, "BRANCHID", a.branch_id, 22, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+        f = leaf(out, w, "ACCTID", a.acct_id, 22, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+        f = leaf(out, w, "ACCTTYPE", a.acct_type, 10, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+        f = opt_leaf(out, w, "ACCTKEY", a.acct_key, 22, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+        close_tag(out, w, "BANKACCTTO", depth);
+        return no_fault();
+    }
+    if x.acct_to_kind != 'C' { return fault(F_SYNTAX, 0, 0, "ACCTTO", "the account kind is not B or C"); }
+    open_tag(out, w, "CCACCTTO", depth);
+    var f = leaf(out, w, "ACCTID", a.acct_id, 22, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = opt_leaf(out, w, "ACCTKEY", a.acct_key, 22, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    close_tag(out, w, "CCACCTTO", depth);
+    return no_fault();
+}
+
+fn leaf_count(out: u8[>..]&, w: OfxForm, tag: const u8[:], n: i64, depth: i64, lim: Limits&) -> Fault {
+    var s: u8[>..] = [];
+    put_num(s, n, 1);
+    return leaf(out, w, tag, s, 9, depth, lim);
+}
+
+// write_image writes the IMAGEDATA aggregate of a transaction. The
+// package only writes a reference. It never fetches one.
+fn write_image(out: u8[>..]&, w: OfxForm, im: OfxImage, depth: i64, lim: Limits&) -> Fault {
+    if !in_list(IMAGE_KINDS, im.kind) { return fault(F_SYNTAX, 0, 0, "IMAGETYPE", "unknown image type"); }
+    if !in_list(IMAGE_REF_KINDS, im.ref_kind) { return fault(F_SYNTAX, 0, 0, "IMAGEREFTYPE", "unknown reference type"); }
+    if im.check_sup.len > 0 && !in_list(CHECK_SUPS, im.check_sup) {
+        return fault(F_SYNTAX, 0, 0, "CHECKSUP", "unknown check side");
+    }
+    if im.has_delay && im.avail.year != 0 {
+        return fault(F_SYNTAX, 0, 0, "IMAGEDATA", "the image holds IMAGEDELAY and DTIMAGEAVAIL together");
+    }
+    if im.delay < 0 || im.ttl < 0 || im.delay > 999999999 || im.ttl > 999999999 {
+        return fault(F_SYNTAX, 0, 0, "IMAGEDELAY", "a day count is out of range");
+    }
+    open_tag(out, w, "IMAGEDATA", depth);
+    var f = leaf(out, w, "IMAGETYPE", im.kind, 11, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = leaf(out, w, "IMAGEREF", im.ref, 255, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    f = leaf(out, w, "IMAGEREFTYPE", im.ref_kind, 7, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    if im.has_delay {
+        f = leaf_count(out, w, "IMAGEDELAY", im.delay, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
+    if im.avail.year != 0 {
+        f = leaf_date(out, w, "DTIMAGEAVAIL", im.avail, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
+    if im.has_ttl {
+        f = leaf_count(out, w, "IMAGETTL", im.ttl, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
+    f = opt_leaf(out, w, "CHECKSUP", im.check_sup, 12, depth + 1, lim);
+    if f.kind != F_NONE { return f; }
+    close_tag(out, w, "IMAGEDATA", depth);
+    return no_fault();
+}
+
 fn write_entry(out: u8[>..]&, w: OfxForm, e: Entry, depth: i64, lim: Limits&) -> Fault {
     let t: const u8[:] = "STMTTRN";
     let x = e.ofx;
@@ -316,6 +382,11 @@ fn write_entry(out: u8[>..]&, w: OfxForm, e: Entry, depth: i64, lim: Limits&) ->
     if f.kind != F_NONE { return f; }
     f = opt_leaf(out, w, "REFNUM", e.supplementary, 32, depth + 1, lim);
     if f.kind != F_NONE { return f; }
+    if x.has_sic {
+        if x.sic < 0 { return fault(F_SYNTAX, 0, 0, "SIC", "the code is negative"); }
+        f = leaf_count(out, w, "SIC", x.sic, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
     f = opt_leaf(out, w, "PAYEEID", x.payee_id, 12, depth + 1, lim);
     if f.kind != F_NONE { return f; }
     if x.has_payee {
@@ -326,10 +397,23 @@ fn write_entry(out: u8[>..]&, w: OfxForm, e: Entry, depth: i64, lim: Limits&) ->
     if f.kind != F_NONE { return f; }
     f = opt_leaf(out, w, "EXTDNAME", x.ext_name, 100, depth + 1, lim);
     if f.kind != F_NONE { return f; }
+    if x.acct_to_kind != 0 {
+        f = write_acct_to(out, w, x, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
     f = opt_leaf(out, w, "MEMO", e.narrative, 255, depth + 1, lim);
     if f.kind != F_NONE { return f; }
+    if x.image_count > 0 {
+        f = write_image(out, w, x.image, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
     if x.rate_kind != 0 {
         f = write_rate(out, w, e, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
+    if x.inv401k_source.len > 0 {
+        if !in_list(INV401K, x.inv401k_source) { return fault(F_SYNTAX, 0, 0, "INV401KSOURCE", "unknown source"); }
+        f = leaf(out, w, "INV401KSOURCE", x.inv401k_source, 14, depth + 1, lim);
         if f.kind != F_NONE { return f; }
     }
     close_tag(out, w, t, depth);

@@ -54,6 +54,31 @@ struct OfxPayee {
     phone: const u8[:],
 }
 
+// OfxAccount holds a BANKACCTTO or a CCACCTTO aggregate.
+struct OfxAccount {
+    bank_id: const u8[:],
+    branch_id: const u8[:],
+    acct_id: const u8[:],
+    acct_type: const u8[:],
+    acct_key: const u8[:],
+}
+
+// OfxImage holds the first IMAGEDATA aggregate of a transaction. The
+// delay and the time to live count days. The fields has_delay and
+// has_ttl tell whether the file holds them; the date has year 0 when
+// absent.
+struct OfxImage {
+    kind: const u8[:],
+    ref: const u8[:],
+    ref_kind: const u8[:],
+    delay: i64,
+    has_delay: bool,
+    avail: Date,
+    ttl: i64,
+    has_ttl: bool,
+    check_sup: const u8[:],
+}
+
 // OfxEntry holds the OFX fields of a transaction that no other format
 // has. The rate_kind is C for a CURRENCY aggregate, O for an ORIGCURRENCY
 // aggregate and zero for none. The rate is exact; its text stays in
@@ -70,6 +95,13 @@ struct OfxEntry {
     rate: Rational,
     rate_text: const u8[:],
     rate_symbol: const u8[:],
+    sic: i64,
+    has_sic: bool,
+    acct_to_kind: u8,
+    acct_to: OfxAccount,
+    inv401k_source: const u8[:],
+    image: OfxImage,
+    image_count: i64,
 }
 
 // no_ofx gives the OFX fields of an entry that has none.
@@ -79,6 +111,11 @@ fn no_ofx() -> OfxEntry {
         has_payee: false,
         payee: OfxPayee { name: "", addr1: "", addr2: "", addr3: "", city: "", state: "", postal_code: "", country: "", phone: "" },
         rate_kind: 0, rate: Rational { num: 0, den: 1 }, rate_text: "", rate_symbol: "",
+        sic: 0, has_sic: false, acct_to_kind: 0,
+        acct_to: OfxAccount { bank_id: "", branch_id: "", acct_id: "", acct_type: "", acct_key: "" },
+        inv401k_source: "",
+        image: OfxImage { kind: "", ref: "", ref_kind: "", delay: 0, has_delay: false, avail: no_date(), ttl: 0, has_ttl: false, check_sup: "" },
+        image_count: 0,
     };
 }
 
@@ -411,6 +448,17 @@ fn check_totals(st: Statement&, entries: Entry[>..]&, line_no: i64, tag_d: const
     }
     if st.has_credit_total && (st.credit_count != cn || st.credit_total.minor != csum) {
         return fault(F_TOTAL, line_no, 1, tag_c, "credit total differs from the entries");
+    }
+    // A total holds the currency of the statement.
+    var cur = st.opening.amount.currency;
+    if cur.len == 0 { cur = st.floor.currency; }
+    if cur.len > 0 {
+        if st.has_debit_total && st.debit_total.currency != cur {
+            return fault(F_TOTAL, line_no, 1, tag_d, "debit total holds another currency");
+        }
+        if st.has_credit_total && st.credit_total.currency != cur {
+            return fault(F_TOTAL, line_no, 1, tag_c, "credit total holds another currency");
+        }
     }
     return no_fault();
 }

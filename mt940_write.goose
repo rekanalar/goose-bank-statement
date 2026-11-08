@@ -200,13 +200,147 @@ fn write_entry_lines(out: u8[>..]&, e: Entry, n: i64) -> Fault {
     return no_fault();
 }
 
+// write_floor_line writes a :34F: line: a currency, an optional D or C
+// mark and an amount. A mark of 0 and a mark of - mean that the line
+// has no mark.
+fn write_floor_line(out: u8[>..]&, tag: const u8[:], a: Amount, mark: u8) -> Fault {
+    if a.currency.len != 3 || !is_letters(a.currency) {
+        return fault(F_SYNTAX, 0, 0, tag, "currency is not three letters");
+    }
+    if a.minor < 0 { return fault(F_AMOUNT, 0, 0, tag, "the floor limit is negative"); }
+    if a.exp != currency_exponent(a.currency) {
+        return fault(F_AMOUNT, 0, 0, tag, "the exponent of the amount differs from the currency");
+    }
+    var m: u8[>..] = [];
+    amount_text(a.minor, a.exp, m);
+    let f = check_amount(tag, m, 0);
+    if f.kind != F_NONE { return f; }
+    out.push(':'); put(out, tag); out.push(':');
+    for c in a.currency { out.push(c); }
+    if mark == 'D' || mark == 'C' { out.push(mark); }
+    put(out, m);
+    out.push('\n');
+    return no_fault();
+}
+
+// write_report_time writes a :13D: line: a date, a time, a sign and an
+// offset from the Greenwich time.
+fn write_report_time(out: u8[>..]&, d: Date, minutes: i32, offset: i32) -> Fault {
+    let tag: const u8[:] = "13D";
+    let fd = check_date(d, tag);
+    if fd.kind != F_NONE { return fd; }
+    if d.year < 1970 || d.year > 2069 { return fault(F_DATE, 0, 0, tag, "the year is outside 1970 to 2069"); }
+    if minutes < 0 || minutes > 1439 { return fault(F_DATE, 0, 0, tag, "the time of the report is not a time"); }
+    if offset < -1439 || offset > 1439 { return fault(F_DATE, 0, 0, tag, "the offset of the report is not a time"); }
+    out.push(':'); put(out, tag); out.push(':');
+    put_yymmdd(out, d);
+    put_num(out, (minutes / 60) as i64, 2);
+    put_num(out, (minutes % 60) as i64, 2);
+    if offset < 0 { out.push('-'); } else { out.push('+'); }
+    var o = offset;
+    if o < 0 { o = -o; }
+    put_num(out, (o / 60) as i64, 2);
+    put_num(out, (o % 60) as i64, 2);
+    out.push('\n');
+    return no_fault();
+}
+
+// write_total_line writes a :90D: or a :90C: line: a count, a currency
+// and an amount.
+fn write_total_line(out: u8[>..]&, tag: const u8[:], count: i64, a: Amount) -> Fault {
+    if count < 0 || count > 99999 { return fault(F_SYNTAX, 0, 0, tag, "the count has more than five digits"); }
+    if a.currency.len != 3 || !is_letters(a.currency) {
+        return fault(F_SYNTAX, 0, 0, tag, "currency is not three letters");
+    }
+    if a.minor < 0 { return fault(F_AMOUNT, 0, 0, tag, "the total is negative"); }
+    if a.exp != currency_exponent(a.currency) {
+        return fault(F_AMOUNT, 0, 0, tag, "the exponent of the amount differs from the currency");
+    }
+    var m: u8[>..] = [];
+    amount_text(a.minor, a.exp, m);
+    let f = check_amount(tag, m, 0);
+    if f.kind != F_NONE { return f; }
+    out.push(':'); put(out, tag); out.push(':');
+    put_num(out, count, 1);
+    for c in a.currency { out.push(c); }
+    put(out, m);
+    out.push('\n');
+    return no_fault();
+}
+
+// write_entry_block writes the entries of a statement. It gives the sum
+// of their effect, the number and the sum of the debit entries and the
+// number and the sum of the credit entries. The currency is the one the
+// entries take.
+fn write_entry_block(out: u8[>..]&, st: Statement, entries: Entry[>..]&, cur: const u8[:]) -> i64, i64, i64, i64, i64, Fault {
+    var sum: i64 = 0;
+    var dsum: i64 = 0;
+    var csum: i64 = 0;
+    var dn: i64 = 0;
+    var cn: i64 = 0;
+    let ex = currency_exponent(cur);
+    var i: i64 = st.entry_start as i64;
+    let end = i + (st.entry_count as i64);
+    while i < end {
+        let e = entries[i];
+        let n = i - (st.entry_start as i64) + 1;
+        if e.amount.currency.len > 0 && e.amount.currency != cur {
+            return 0, 0, 0, 0, 0, with_pos(fault(F_SYNTAX, 0, 0, "61", "the currency of the entry differs from the currency of the statement"), n, "61");
+        }
+        if e.amount.exp != ex {
+            return 0, 0, 0, 0, 0, with_pos(fault(F_AMOUNT, 0, 0, "61", "the exponent of the amount differs from the currency"), n, "61");
+        }
+        let eff, ok = entry_effect(e);
+        if !ok { return 0, 0, 0, 0, 0, with_pos(fault(F_SYNTAX, 0, 0, "61", "mark is not D, C, RD or RC"), n, "61"); }
+        if (eff > 0 && sum > 9223372036854775807 - eff) || (eff < 0 && sum < -9223372036854775807 - eff) {
+            return 0, 0, 0, 0, 0, fault(F_OVERFLOW, 0, 0, "61", "the sum of the entries overflows");
+        }
+        sum += eff;
+        var m = e.amount.minor;
+        if m < 0 { m = -m; }
+        if eff < 0 {
+            dn += 1;
+            let s, ok2 = add_checked(dsum, m);
+            if !ok2 { return 0, 0, 0, 0, 0, fault(F_OVERFLOW, 0, 0, "90D", "sum of entries does not fit in 64 bits"); }
+            dsum = s;
+        } else {
+            cn += 1;
+            let s, ok2 = add_checked(csum, m);
+            if !ok2 { return 0, 0, 0, 0, 0, fault(F_OVERFLOW, 0, 0, "90C", "sum of entries does not fit in 64 bits"); }
+            csum = s;
+        }
+        let f = write_entry_lines(out, e, n);
+        if f.kind != F_NONE { return 0, 0, 0, 0, 0, f; }
+        i += 1;
+    }
+    return sum, dn, dsum, cn, csum, no_fault();
+}
+
+// write_one writes one statement. The fields come in the order of the
+// manual: :20:, :21:, :25:, :28C:, the floor limits :34F:, the report
+// time :13D:, the opening balance :60F:, the entries :61:, the closing
+// balance :62F:, the balances :64: and :65: and the totals :90D: and
+// :90C:. A statement holds the balances. An interim report holds no
+// balance and needs a floor limit for the currency of its entries.
 fn write_one(out: u8[>..]&, st: Statement, entries: Entry[>..]&, lim: Limits&) -> Fault {
-    if st.is_interim { return fault(F_SYNTAX, 0, 0, "", "the writer does not write an interim report"); }
-    if st.opening.kind == 0 { return fault(F_SYNTAX, 0, 0, "60F", "a statement needs an opening balance"); }
-    if st.closing.kind == 0 { return fault(F_SYNTAX, 0, 0, "62F", "a statement needs a closing balance"); }
     if st.reference.len == 0 { return fault(F_SYNTAX, 0, 0, "20", "a statement needs a reference"); }
     if st.account.len == 0 { return fault(F_SYNTAX, 0, 0, "25", "a statement needs an account"); }
     if st.number.len == 0 { return fault(F_SYNTAX, 0, 0, "28C", "a statement needs a number"); }
+    // A statement holds both balances. An interim report holds none.
+    let has_open = st.opening.kind != 0;
+    let has_close = st.closing.kind != 0;
+    if has_open != has_close {
+        if has_open { return fault(F_SYNTAX, 0, 0, "62F", "a statement needs a closing balance"); }
+        return fault(F_SYNTAX, 0, 0, "60F", "a statement needs an opening balance");
+    }
+    // The currency of the entries is the currency of the opening
+    // balance. A report without one takes the currency of its floor
+    // limit.
+    var cur = st.floor.currency;
+    if has_open { cur = st.opening.amount.currency; }
+    if cur.len != 3 || !is_letters(cur) {
+        return fault(F_SYNTAX, 0, 0, "60F", "the statement needs a currency");
+    }
     var f = put_text_field(out, "20", st.reference, SW_REF);
     if f.kind != F_NONE { return f; }
     if st.related_ref.len > 0 {
@@ -222,36 +356,60 @@ fn write_one(out: u8[>..]&, st: Statement, entries: Entry[>..]&, lim: Limits&) -
     if f.kind != F_NONE { return f; }
     f = put_text_field(out, "28C", num, 11);
     if f.kind != F_NONE { return f; }
-    var open_tag: const u8[:] = "60F";
-    if st.opening.intermediate { open_tag = "60M"; }
-    f = write_balance_line(out, open_tag, st.opening);
-    if f.kind != F_NONE { return f; }
-    var sum = balance_value(st.opening);
-    var i: i64 = st.entry_start as i64;
-    let end = i + (st.entry_count as i64);
-    while i < end {
-        let eff, ok = entry_effect(entries[i]);
-        if !ok { return with_pos(fault(F_SYNTAX, 0, 0, "61", "mark is not D, C, RD or RC"), i - (st.entry_start as i64) + 1, "61"); }
-        if (eff > 0 && sum > 9223372036854775807 - eff) || (eff < 0 && sum < -9223372036854775807 - eff) {
-            return fault(F_OVERFLOW, 0, 0, "61", "the sum of the entries overflows");
-        }
-        sum += eff;
-        f = write_entry_lines(out, entries[i], i - (st.entry_start as i64) + 1);
+    if st.floor.currency.len > 0 {
+        f = write_floor_line(out, "34F", st.floor, st.floor_mark);
         if f.kind != F_NONE { return f; }
-        i += 1;
     }
-    var close_tag: const u8[:] = "62F";
-    if st.closing.intermediate { close_tag = "62M"; }
-    let want = balance_value(st.closing);
-    if sum != want { return fault_sums(F_BALANCE, 0, close_tag, "the balances do not add up", sum, want); }
-    f = write_balance_line(out, close_tag, st.closing);
-    if f.kind != F_NONE { return f; }
+    if st.floor2.currency.len > 0 {
+        f = write_floor_line(out, "34F", st.floor2, st.floor2_mark);
+        if f.kind != F_NONE { return f; }
+    }
+    if st.has_report_time {
+        f = write_report_time(out, st.report_date, st.report_minutes, st.report_offset);
+        if f.kind != F_NONE { return f; }
+    }
+    var sum = 0;
+    if has_open {
+        var open_tag: const u8[:] = "60F";
+        if st.opening.intermediate { open_tag = "60M"; }
+        f = write_balance_line(out, open_tag, st.opening);
+        if f.kind != F_NONE { return f; }
+        sum = balance_value(st.opening);
+    }
+    let add, dn, dsum, cn, csum, fe = write_entry_block(out, st, entries, cur);
+    if fe.kind != F_NONE { return fe; }
+    if (add > 0 && sum > 9223372036854775807 - add) || (add < 0 && sum < -9223372036854775807 - add) {
+        return fault(F_OVERFLOW, 0, 0, "61", "the sum of the entries overflows");
+    }
+    sum += add;
+    if has_close {
+        var close_tag: const u8[:] = "62F";
+        if st.closing.intermediate { close_tag = "62M"; }
+        let want = balance_value(st.closing);
+        if sum != want { return fault_sums(F_BALANCE, 0, close_tag, "the balances do not add up", sum, want); }
+        f = write_balance_line(out, close_tag, st.closing);
+        if f.kind != F_NONE { return f; }
+    }
     if st.available.kind != 0 {
         f = write_balance_line(out, "64", st.available);
         if f.kind != F_NONE { return f; }
     }
     if st.forward.kind != 0 {
         f = write_balance_line(out, "65", st.forward);
+        if f.kind != F_NONE { return f; }
+    }
+    if st.has_debit_total {
+        if st.debit_count != dn || st.debit_total.minor != dsum || st.debit_total.currency != cur {
+            return fault(F_TOTAL, 0, 0, "90D", "debit total differs from the entries");
+        }
+        f = write_total_line(out, "90D", st.debit_count, st.debit_total);
+        if f.kind != F_NONE { return f; }
+    }
+    if st.has_credit_total {
+        if st.credit_count != cn || st.credit_total.minor != csum || st.credit_total.currency != cur {
+            return fault(F_TOTAL, 0, 0, "90C", "credit total differs from the entries");
+        }
+        f = write_total_line(out, "90C", st.credit_count, st.credit_total);
         if f.kind != F_NONE { return f; }
     }
     return check_size(out, lim);

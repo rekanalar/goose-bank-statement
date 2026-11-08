@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.8.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.9.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -304,18 +304,42 @@ Every other reader gives it the empty value from `no_ofx()`.
 | `payee_id`, `ext_name` | `PAYEEID`, `EXTDNAME` |
 | `has_payee`, `payee` | the `PAYEE` aggregate: name, three address lines, city, state, postal code, country, phone |
 | `rate_kind`, `rate`, `rate_text`, `rate_symbol` | `CURRENCY` (kind `C`) or `ORIGCURRENCY` (kind `O`) with `CURRATE` and `CURSYM` |
+| `has_sic`, `sic` | `SIC` |
+| `acct_to_kind`, `acct_to` | `BANKACCTTO` (kind `B`) or `CCACCTTO` (kind `C`) |
+| `inv401k_source` | `INV401KSOURCE` |
+| `image`, `image_count` | the first `IMAGEDATA` aggregate and the count of the aggregates |
 
 The rate is an exact rational. Its text stays in `rate_text`. A rate of zero is a fault.
 `CURRENCY` gives the currency of the amount. The reader then reads `TRNAMT` with the minor digits of that currency.
 `ORIGCURRENCY` leaves the currency of the statement.
 
 The reader refuses `NAME` together with `PAYEE`. It refuses `CURRENCY` together with `ORIGCURRENCY`.
+It refuses `BANKACCTTO` together with `CCACCTTO`.
 The writer writes the fields in the order of the OFX specification and checks the limits of Python `ofxtools`.
 
 Those limits are `PAYEEID` 12, `EXTDNAME` 100, `CORRECTFITID` 255 and the `PAYEE` fields 32, 5 and 11.
 A `PAYEE` needs its name, first address line, city, state, postal code and phone.
 The country is three capital letters. The package holds no table of country codes.
 A correction needs both `CORRECTFITID` and `CORRECTACTION`.
+
+The `SIC` code is a number of one to nine digits.
+The `acct_to` member holds the bank id, the branch id, the account id, the account type and the account key.
+The account type is one of `CHECKING`, `SAVINGS`, `MONEYMRKT`, `CREDITLINE` and `CD`.
+The `CCACCTTO` aggregate holds the account id and the account key only.
+The `INV401KSOURCE` is one of `PRETAX`, `AFTERTAX`, `MATCH`, `PROFITSHARING`, `ROLLOVER`, `OTHERVEST` and `OTHERNONVEST`.
+
+The `image` member holds the type, the reference and the reference type.
+It also holds the delay, the availability date, the time to live and the check side.
+
+The image type is one of `STATEMENT`, `TRANSACTION` and `TAX`.
+The reference type is one of `OPAQUE`, `URL` and `FORMURL`.
+The check side is one of `FRONTONLY`, `BACKONLY` and `FRONTANDBACK`.
+The `IMAGEDELAY` and the `DTIMAGEAVAIL` exclude each other.
+
+The reader keeps the first `IMAGEDATA` aggregate and counts the rest.
+The writer writes the one image of the member.
+Python `ofxtools` marks `IMAGEDATA` as unsupported. Go `ofxgo` reads it.
+This package reads it and writes it.
 
 ### QIF
 
@@ -444,7 +468,20 @@ The writer checks that the opening balance and the entries add up to the closing
 An entry needs the mark and a type of four characters that starts with S, N or F.
 An empty customer reference becomes `NONREF`.
 
-**References.** Python `ofxtools` and Go `ofxgo` write OFX. Python `quiffen` writes QIF. Java `prowide-core` writes MT940.
+**MT942.** `write_mt940` writes an interim report when the statement holds no balance.
+The report holds `:20:`, `:21:`, `:25:` and `:28C:`.
+It holds one or two `:34F:` lines, the `:13D:` line and the entries with `:86:`.
+It holds the totals `:90D:` and `:90C:`.
+
+The `:34F:` line holds the currency, an optional `D` or `C` mark and the amount.
+The `:13D:` line holds the date, the time, a sign and the offset from the Greenwich time.
+The `:90D:` and `:90C:` lines hold a count, a currency and an amount.
+
+The writer checks the totals against the entries, or it gives `F_TOTAL`.
+A report needs a floor limit, because its currency is the currency of its entries.
+A report holds no balance, so a statement that carries one is a fault.
+
+**References.** Python `ofxtools` and Go `ofxgo` write OFX. Python `quiffen` writes QIF. Java `prowide-core` writes MT940 and MT942.
 Node `ofx-js` reads only. GnuCash and Rust `qif_parser` write no QIF.
 
 The Python, Node and Rust MT940 libraries read only.
@@ -459,8 +496,9 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The camt reader reads the statements, not the whole message.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message.
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
-- **The writers write what the reader types hold.** The OFX code keeps no `SIC`, `BANKACCTTO`, `CCACCTTO`, `INV401KSOURCE` and `IMAGEDATA`. The writer writes no investment statement, no sign-on request, no bill pay and no QIF payee list.
-- **The MT940 writer writes no interim report.** It writes no MT942.
+- **The writers write what the reader types hold.** The writer writes no investment statement.
+It writes no sign-on request, no bill pay and no QIF payee list.
+- **The OFX code keeps one image.** The reader keeps the first `IMAGEDATA` aggregate of a transaction and counts the rest. The writer writes that one image.
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only four bank dialects exist.** The package reads Rabobank, ABN AMRO, ING and Regiobank. Python `mt940` 5.1.3 also reads mBank, ASN Bank and GLS. A caller reads other banks from the `:86:` text.
@@ -511,6 +549,7 @@ Protections beyond the reference libraries:
 - **The QIF writer refuses a line end.** Python `quiffen` escapes nothing. A payee with a line end can add an amount or end the record. This package gives a fault. A field code of `!` or `^` is a fault too.
 - **The MT940 writer refuses a tag line.** A narrative line that starts with a colon is a fault. So is a lone minus. So is a byte outside the SWIFT set.
 - **The writers use no float.** An amount comes from minor units by integer division. The most negative 64-bit value writes without overflow.
+- **The MT942 writer checks the totals.** A total that differs from the entries is a fault. Python `mt940` and Rust `mt940-rs` read a total and keep it. This package refuses to write a report with a wrong total.
 
 Risks that stay:
 
@@ -518,6 +557,7 @@ Risks that stay:
 - **The text of a remittance or a party name is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.
 
 - **The text of a narrative, a payee or a memo is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.
+- **The reference of an image is untrusted.** The package never fetches it. A caller that fetches it must check the host and the scheme. A reference that names a host inside the network of the caller reaches that host.
 - **The default input limit is 16 MiB.** Lower it when you read from a form upload.
 - **`check_fields` is off by default.** Without it a field may hold any width. Turn it on for a bank that keeps the manual, and keep `max_field` low for the rest.
 - **`skip_balance_check` turns the balance protection off.** Use it only for a file you already trust.

@@ -53,3 +53,12 @@ fn ieq_nospace(a: const u8[:], b: const u8[:]) -> bool {
     while j < b.len && b[j] == ' ' { j += 1; }
     return i == a.len && j == b.len;
 }
+
+// in_list tells whether the text is one of the words.
+fn in_list(words: const u8[:][]&, s: const u8[:]) -> bool {
+    for w in words {
+        if w == s { return true; }
+    }
+    return false;
+}
+

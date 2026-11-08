@@ -193,7 +193,7 @@ fn tag_allowed(last: i32, tag: i32) -> bool {
     if last == T_21 { return tag == T_25; }
     if last == T_25 { return tag == T_28; }
     if last == T_28 { return tag == T_34F || tag == T_13D || tag == T_60 || tag == T_61; }
-    if last == T_34F { return tag == T_13D || tag == T_60 || tag == T_61; }
+    if last == T_34F { return tag == T_34F || tag == T_13D || tag == T_60 || tag == T_61; }
     if last == T_13D { return tag == T_60 || tag == T_61; }
     if last == T_60 { return tag == T_61 || tag == T_62 || tag == T_86; }
     if last == T_61 { return tag == T_61 || tag == T_86 || tag == T_62 || tag == T_90; }

@@ -23,6 +23,15 @@ fn main() {
     print("debits ", st.debit_count, " total ", st.debit_total.minor);
     print("credits ", st.credit_count, " total ", st.credit_total.minor);
 
+    // The writer gives the report back.
+    var out: u8[>..] = [];
+    let w = bank_statement::write_mt940(sts, ens, lim, out);
+    if w.kind != 0 {
+        print("error: ", bank_statement::kind_name(w.kind), " ", w.detail);
+        return 1;
+    }
+    print(out);
+
     // A total that does not match the entries is an error.
     let bad = ":20:I\n:34F:EUR0,\n:61:250102C500,00NTRFREF\n:90C:1EUR499,99\n";
     var sts2: bank_statement::Statement[>..] = [];

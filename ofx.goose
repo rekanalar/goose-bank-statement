@@ -303,6 +303,12 @@ fn ofx_tranlist(nodes: SgmlNode[>..]&, id: i32, ccy: const u8[:], lim: Limits&,
     return no_fault();
 }
 
+// The enums of the transaction fields.
+const INV401K: const u8[:][] = ["PRETAX", "AFTERTAX", "MATCH", "PROFITSHARING", "ROLLOVER", "OTHERVEST", "OTHERNONVEST"];
+const IMAGE_KINDS: const u8[:][] = ["STATEMENT", "TRANSACTION", "TAX"];
+const IMAGE_REF_KINDS: const u8[:][] = ["OPAQUE", "URL", "FORMURL"];
+const CHECK_SUPS: const u8[:][] = ["FRONTONLY", "BACKONLY", "FRONTANDBACK"];
+
 // child_text gives the text of the named child, or an empty text.
 fn child_text(nodes: SgmlNode[>..]&, id: i32, name: const u8[:], buf: u8[>..]&) -> const u8[:] {
     let c = sgml_child(nodes, id, name);
@@ -358,6 +364,79 @@ fn ofx_extras(nodes: SgmlNode[>..]&, id: i32, buf: u8[>..]&) -> OfxEntry, Fault 
         x.payee.postal_code = child_text(nodes, py, "POSTALCODE", buf);
         x.payee.country = child_text(nodes, py, "COUNTRY", buf);
         x.payee.phone = child_text(nodes, py, "PHONE", buf);
+    }
+    let sic = sgml_child(nodes, id, "SIC");
+    if sic >= 0 {
+        let n, ok = digits(sgml_text_of(nodes, sic, buf));
+        if !ok { return x, fault(F_SYNTAX, 0, 0, "SIC", "the code is not a number of 1 to 9 digits"); }
+        x.sic = n;
+        x.has_sic = true;
+    }
+    let bt = sgml_child(nodes, id, "BANKACCTTO");
+    let ct = sgml_child(nodes, id, "CCACCTTO");
+    if bt >= 0 && ct >= 0 {
+        return x, fault(F_SYNTAX, 0, 0, "STMTTRN", "the entry holds BANKACCTTO and CCACCTTO together");
+    }
+    if bt >= 0 {
+        x.acct_to_kind = 'B';
+        x.acct_to.bank_id = child_text(nodes, bt, "BANKID", buf);
+        x.acct_to.branch_id = child_text(nodes, bt, "BRANCHID", buf);
+        x.acct_to.acct_id = child_text(nodes, bt, "ACCTID", buf);
+        x.acct_to.acct_type = child_text(nodes, bt, "ACCTTYPE", buf);
+        x.acct_to.acct_key = child_text(nodes, bt, "ACCTKEY", buf);
+    }
+    if ct >= 0 {
+        x.acct_to_kind = 'C';
+        x.acct_to.acct_id = child_text(nodes, ct, "ACCTID", buf);
+        x.acct_to.acct_key = child_text(nodes, ct, "ACCTKEY", buf);
+    }
+    x.inv401k_source = child_text(nodes, id, "INV401KSOURCE", buf);
+    if x.inv401k_source.len > 0 && !in_list(INV401K, x.inv401k_source) {
+        return x, fault(F_SYNTAX, 0, 0, "INV401KSOURCE", "the source is not one of the seven values");
+    }
+    var first: i32 = -1;
+    var c = first_child(nodes, id);
+    while c >= 0 {
+        if ieq(nodes[c].name, "IMAGEDATA") {
+            x.image_count += 1;
+            if first < 0 { first = c; }
+        }
+        c = sgml_next(nodes, c);
+    }
+    if first >= 0 {
+        x.image.kind = child_text(nodes, first, "IMAGETYPE", buf);
+        x.image.ref = child_text(nodes, first, "IMAGEREF", buf);
+        x.image.ref_kind = child_text(nodes, first, "IMAGEREFTYPE", buf);
+        x.image.check_sup = child_text(nodes, first, "CHECKSUP", buf);
+        let dl = child_text(nodes, first, "IMAGEDELAY", buf);
+        if dl.len > 0 {
+            let n, ok = digits(dl);
+            if !ok { return x, fault(F_SYNTAX, 0, 0, "IMAGEDELAY", "the delay is not a number of 1 to 9 digits"); }
+            x.image.delay = n;
+            x.image.has_delay = true;
+        }
+        let tl = child_text(nodes, first, "IMAGETTL", buf);
+        if tl.len > 0 {
+            let n, ok = digits(tl);
+            if !ok { return x, fault(F_SYNTAX, 0, 0, "IMAGETTL", "the time to live is not a number of 1 to 9 digits"); }
+            x.image.ttl = n;
+            x.image.has_ttl = true;
+        }
+        let da = sgml_child(nodes, first, "DTIMAGEAVAIL");
+        if da >= 0 {
+            let d, ok = ofx_date(sgml_text_of(nodes, da, buf));
+            if !ok { return x, fault(F_DATE, 0, 0, "DTIMAGEAVAIL", "the date is not OFX form"); }
+            x.image.avail = d;
+        }
+        if !in_list(IMAGE_KINDS, x.image.kind) || !in_list(IMAGE_REF_KINDS, x.image.ref_kind) {
+            return x, fault(F_SYNTAX, 0, 0, "IMAGEDATA", "the image type or reference type is not known");
+        }
+        if x.image.check_sup.len > 0 && !in_list(CHECK_SUPS, x.image.check_sup) {
+            return x, fault(F_SYNTAX, 0, 0, "CHECKSUP", "the check side is not known");
+        }
+        if x.image.has_delay && x.image.avail.year != 0 {
+            return x, fault(F_SYNTAX, 0, 0, "IMAGEDATA", "the image holds IMAGEDELAY and DTIMAGEAVAIL together");
+        }
     }
     let cu = sgml_child(nodes, id, "CURRENCY");
     let oc = sgml_child(nodes, id, "ORIGCURRENCY");
