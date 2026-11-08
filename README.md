@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.11.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.12.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -39,7 +39,9 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_camt(input, lim, opts, statements, entries, balances, buf)` | reads a camt.052, camt.053 or camt.054 document; gives a `Fault` |
 | `parse_ofx(input, lim, opts, statements, entries, balances, notes, buf)` | reads an OFX 1.x or OFX 2.x file; gives a `Fault` |
 | `parse_dialect(kind, text, lim, values, buffer)` | reads the named values of a `:86:` text of a Dutch bank; gives a `Fault` |
+| `parse_qif_lists(input, lim, opts, items, budgets, lines, extra, prices)` | reads the list sections of a QIF file into typed records; gives a `Fault` |
 | `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
+| `write_qif_lists(items, budgets, lines, extra, prices, opts, lim, out)` | appends the typed list records of a QIF file to `out`; gives a `Fault` |
 | `write_ofx(statements, entries, notes, opts, lim, out)` | appends an OFX 1.x or 2.x file to `out`; gives a `Fault` |
 | `write_mt940(statements, entries, lim, out)` | appends MT940 statements to `out`; gives a `Fault` |
 | `decode_charset(kind, input, lim, out)` | turns Windows-1252 or ISO-8859-1 bytes into UTF-8; gives a `Fault` |
@@ -372,8 +374,29 @@ splits and the investment fields.
 
 The codes are `D`, `T`, `U`, `C`, `N`, `P`, `M`, `L` and `F`.
 They go on with `S`, `E`, `$`, `%`, `Y`, `I`, `Q` and `O`.
-The other sections keep every line as a `QifField`. A code with no typed field also becomes a `QifField`.
+`parse_qif` keeps the lines of the list sections as `QifField` values. A code with no typed field also becomes a `QifField`.
 The reader drops no line.
+
+`parse_qif_lists` reads the list sections into named fields. It skips the transaction sections.
+Each record gives a `QifItem`. Each line of the Prices section gives a `QifPrice`.
+
+| Section | Codes |
+|---|---|
+| `!Account` | `N` name, `T` type, `D` description, `L` credit limit, `/` statement balance date, `$` statement balance |
+| `!Type:Cat` and `!Type:Budget` | `N` name, `D` description, `T` tax flag, `I` income flag, `E` expense flag, `R` tax schedule, `B` budget amounts |
+| `!Type:Class` | `N` name, `D` description, `R` tax schedule |
+| `!Type:Security` | `N` name, `S` symbol, `T` type, `G` goal |
+| `!Type:Tag` | `N` name, `D` description |
+| `!Type:Payee` | `P` name, `A` address lines, `C` city, `S` state, `Z` zip, `Y` country, `N` phone, `#` account |
+| `!Type:Prices` | one line `"symbol",price,"date"` for each price, each one followed by `^` |
+
+The budget amounts of a category are a range of the array `budgets`.
+The address lines of a payee are a range of the array `lines`.
+
+A price is an exact `Rational`; its text stays in `price_text`. A comma inside the quotes of a symbol does not split the line.
+A code that the section does not know, and a scalar line that repeats, stay as fields in `extra`.
+A record without a closing `^` before the next header or the end of the file is kept.
+`DATE_DETECT` reads like `DATE_AUTO` for the lists: each date is read alone, and an ambiguous date is a fault.
 
 The amount of a record comes from the `U` code when the record holds one.
 Without a `U`, it comes from `T`. The order in the file does not matter. This is the rule of GnuCash.
@@ -460,7 +483,11 @@ A fault leaves partial text in the buffer. Do not use it.
 Every writer checks each text before it writes the text. It never cuts a text and never repairs one.
 A control byte is a fault. A text that is too long is a fault. The output has the limit `max_input`.
 
-**QIF.** `write_qif` writes the sections Bank, Cash, CCard, Oth A, Oth L, Account, Cat and Class.
+**QIF.** `write_qif` writes the sections Bank, Cash, CCard, Oth A and Oth L. It writes the list sections from their fields.
+
+`write_qif_lists` writes the typed list records and the prices. A name is required. A price needs a symbol without a quote.
+The writer writes a price as a decimal or as a fraction `n/d`.
+It takes the decimal when the denominator is a power of ten.
 A record writes `D`, `T`, `U`, `C`, `N`, `P`, `M`, `L`, the splits and `F`.
 
 It also writes the extra fields, such as the `A` lines. Each address line is one `A` line.
@@ -523,7 +550,7 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **The writers write what the reader types hold.** The writer writes no investment statement.
-It writes no sign-on request, no bill pay and no QIF payee list.
+It writes no sign-on request and no bill pay.
 - **The OFX code keeps one image.** The reader keeps the first `IMAGEDATA` aggregate of a transaction and counts the rest. The writer writes that one image.
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
@@ -535,7 +562,9 @@ It writes no sign-on request, no bill pay and no QIF payee list.
 - **The OFX package has no network.** Python `ofxtools` and
   Go `ofxgo` speak OFX over HTTPS. The standard library of Goose has no
   HTTP client.
-- **The QIF sections beyond the transactions keep no typed record.** They hold lines as `QifField` values. GnuCash gives each one a record of its own type.
+- **The QIF Payee, Budget and Tag sections have no standard.** GnuCash, KMyMoney and Python `quiffen` skip them. Rust `qif_parser` reads Budget and Tag. The Perl library `Finance::QIF` is the only source for the Payee list. It numbers the address lines `A0` to `A2`. This package keeps the text of each `A` line as written. A numbered file gives lines that start with the number.
+- **The QIF `B` code of an account has two meanings.** GnuCash reads a budget. `Finance::QIF` reads a balance. This package keeps it as a field.
+- **A price line holds three parts.** `Finance::QIF` reads three more parts, a high, a low and a volume. This package refuses a line with more than three parts.
 - **The nesting limit is 16.** It was 8 before. The OFX files of the
   banks nest deeper than 8 levels.
 - **A long tail of zeros is a fault.** A decimal part with 19 or more zeros at the end faults.
@@ -556,6 +585,7 @@ Protections beyond the reference libraries:
 - **Amounts are exact.** Go `evmar/fin` reads a QIF amount through a float and gets cents wrong, as in `8.11`. Python `quiffen` strips every comma. This package checks the groups of a thousands mark and the count of decimals.
 - **The investment values are exact rationals.** Rust `qif_parser` reads the price, the quantity and the commission through a float. It loses digits. This package gives a numerator and a denominator and uses no float.
 - **Overflow is a fault.** An amount, a sum of entries or a count never wraps. The value range ends at the largest and the most negative 64-bit integer, and both are valid amounts.
+- **A QIF list record cannot break out.** `write_qif_lists` refuses a line end and a control byte in every text. It refuses a field code of `!` or `^`, and a quote in a price symbol. Python `quiffen` escapes none of them.
 - **An ambiguous QIF date is a fault.** Rust `qif_parser` guesses the order. This package asks the caller, or reads the whole file.
 - **Every size has a limit.** The limits cover the input, the line, the field and the nesting of blocks. They also cover the counts of statements, entries, splits, records and fields. Python `mt940` and `quiffen` cap none of them. Python `bankstatementparser` caps the file size only. `default_limits()` holds safe values.
 - **A control byte is a fault.** A NUL byte never reaches a text field. A CR without an LF is a fault too.

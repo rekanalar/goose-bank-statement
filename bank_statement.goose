@@ -25,6 +25,7 @@ import dialect;
 import qif;
 import write_text;
 import qif_write;
+import qif_lists;
 import sgml;
 import ofx;
 import ofx_write;

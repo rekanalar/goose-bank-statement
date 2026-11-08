@@ -3,7 +3,8 @@
 // write_qif appends a QIF file to the buffer of the caller. It takes
 // the records, the splits and the extra fields that parse_qif gives.
 // The writer writes the sections bank, cash, card, other asset, other
-// liability, the account list, the category list and the class list.
+// liability and every list section. The lists keep their lines as
+// fields; write_qif_lists writes the typed records of the lists.
 // Every text is checked. A line end or a control byte is a fault, so a
 // value cannot add a field or end a record.
 namespace bank_statement;
@@ -33,6 +34,11 @@ fn section_header(k: i32) -> const u8[:] {
     if k == Q_OTH_L { return "!Type:Oth L"; }
     if k == Q_CAT { return "!Type:Cat"; }
     if k == Q_CLASS { return "!Type:Class"; }
+    if k == Q_BUDGET { return "!Type:Budget"; }
+    if k == Q_TAG { return "!Type:Tag"; }
+    if k == Q_SECURITY { return "!Type:Security"; }
+    if k == Q_PRICES { return "!Type:Prices"; }
+    if k == Q_PAYEE { return "!Type:Payee"; }
     return "";
 }
 
@@ -134,7 +140,7 @@ fn write_record(out: u8[>..]&, r: QifRecord, splits: QifSplit[>..]&, extra: QifF
     if r.number.len > 0 { let f = put_line(out, 'N', r.number, "N", lim); if f.kind != F_NONE { return f; } }
     if r.payee.len > 0 { let f = put_line(out, 'P', r.payee, "P", lim); if f.kind != F_NONE { return f; } }
     if r.memo.len > 0 { let f = put_line(out, 'M', r.memo, "M", lim); if f.kind != F_NONE { return f; } }
-    let fx = write_fields(out, r, extra, lim);
+    let fx = write_fields(out, r.field_start as i64, r.field_count as i64, extra, lim);
     if fx.kind != F_NONE { return fx; }
     if r.category.len > 0 { let f = put_line(out, 'L', r.category, "L", lim); if f.kind != F_NONE { return f; } }
     var i: i64 = r.split_start as i64;
@@ -159,9 +165,9 @@ fn write_record(out: u8[>..]&, r: QifRecord, splits: QifSplit[>..]&, extra: QifF
 
 // write_fields writes the extra fields of a record. The code of a
 // field must be a printable byte that is not ! and not ^.
-fn write_fields(out: u8[>..]&, r: QifRecord, extra: QifField[>..]&, lim: Limits&) -> Fault {
-    var i: i64 = r.field_start as i64;
-    let end: i64 = i + (r.field_count as i64);
+fn write_fields(out: u8[>..]&, start: i64, count: i64, extra: QifField[>..]&, lim: Limits&) -> Fault {
+    var i: i64 = start;
+    let end: i64 = i + count;
     while i < end {
         let c = extra[i].code;
         if c <= 32 || c == 127 || c == '!' || c == '^' {
@@ -198,7 +204,7 @@ fn write_qif(records: QifRecord[>..]&, splits: QifSplit[>..]&, extra: QifField[>
             let f = write_record(out, r, splits, extra, order, lim);
             if f.kind != F_NONE { return with_pos(f, n + 1, f.tag); }
         } else {
-            let f = write_fields(out, r, extra, lim);
+            let f = write_fields(out, r.field_start as i64, r.field_count as i64, extra, lim);
             if f.kind != F_NONE { return with_pos(f, n + 1, f.tag); }
         }
         put(out, "^\n");

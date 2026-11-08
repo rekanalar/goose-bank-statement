@@ -40,6 +40,7 @@ const Q_TAX: i32 = 16;
 const Q_BILL: i32 = 17;
 const Q_BUDGET: i32 = 18;
 const Q_TAG: i32 = 19;
+const Q_PAYEE: i32 = 20;
 
 // The order of the parts of a date. DATE_AUTO reads each date alone: a
 // year of four digits first means year first, a part above 12 gives the
@@ -162,6 +163,7 @@ fn section_of(h: const u8[:]) -> i32 {
     if ieq_nospace(name, "security") { return Q_SECURITY; }
     if ieq_nospace(name, "prices") { return Q_PRICES; }
     if ieq_nospace(name, "memorized") { return Q_MEMORIZED; }
+    if ieq_nospace(name, "payee") { return Q_PAYEE; }
     return -1;
 }
 
