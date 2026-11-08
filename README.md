@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.22.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.23.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -46,6 +46,7 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `check_ofx_tree(tree, lim)` | checks a list of `OfxNode` against the element rules of OFX; gives the first `Fault` |
 | `ofx_fetch(request, opts, lim, out, buf)` | sends an OFX request over HTTPS with `curl` and appends the body; gives the status code and a `Fault` |
 | `parse_dialect(kind, text, lim, values, buffer)` | reads the named values of a `:86:` text of a Dutch bank; gives a `Fault` |
+| `parse_field_86(text, lim, values, buffer)` | reads the GVC codes and the slash tags of any `:86:` text; gives a `Field86` and a `Fault` |
 | `parse_qif_lists(input, lim, opts, items, budgets, lines, extra, prices)` | reads the list sections of a QIF file into typed records; gives a `Fault` |
 | `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
 | `write_qif_lists(items, budgets, lines, extra, prices, opts, lim, out)` | appends the typed list records of a QIF file to `out`; gives a `Fault` |
@@ -456,6 +457,23 @@ let opts = bank_statement::Mt940Options { .. };
 let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
 if f.kind != 0 { print(bank_statement::kind_name(f.kind), " at line ", f.line); }
 ```
+
+#### The structured values of any :86: text
+
+Banks outside the five dialects write two forms into the `:86:` text.
+One form holds the German SEPA codes `?00` to `?63`. The other holds the slash tags `/TAG/value`.
+Python `bankstatementparser` reads both forms. `parse_field_86(text, limits, values, buffer)` does the same.
+
+It gives a `Field86` with the transaction code, the end-to-end id, the mandate id, and the creditor and the debtor.
+It holds the IBAN and the BIC, the remittance, the purpose code, the service reference, and the two amounts.
+
+The amounts are exact. A text that gives no amount leaves the field empty, as the reference does.
+
+The parts of the remittance and of the creditor name join with one space.
+Every tag that no named field takes comes back in the array of values.
+
+When no tag names an IBAN or a BIC, the reader finds one in the naked text. A BIC needs six capital letters.
+A placeholder of `NOTPROVIDED` or `UNDEFINED` never becomes a value.
 
 #### The bank dialects of the :86: field
 
