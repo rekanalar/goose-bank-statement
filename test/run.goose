@@ -759,6 +759,9 @@ const CAMT53: const u8[:] = """
       <ElctrncSeqNb>42</ElctrncSeqNb>
       <LglSeqNb>7</LglSeqNb>
       <CreDtTm>2025-01-02T15:30:00+01:00</CreDtTm>
+      <FrToDt><FrDtTm>2025-01-01T00:00:00</FrDtTm><ToDtTm>2025-01-31T23:59:59</ToDtTm></FrToDt>
+      <CpyDplctInd>CCPY</CpyDplctInd>
+      <RptgSeq><FrToSeq><From>11</From><To>78</To></FrToSeq></RptgSeq>
       <Acct><Id><IBAN>DE89370400440532013000</IBAN></Id><Ccy>EUR</Ccy></Acct>
       <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-01-01</Dt></Dt></Bal>
       <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1700.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-01-02</Dt></Dt></Bal>
@@ -1372,6 +1375,11 @@ fn test_camt_statement() {
     assert(st.report_date.year == 2025 && st.report_date.month == 1 && st.report_date.day == 2);
     assert(st.report_minutes == 15 * 60 + 30 && st.report_offset == 60 && st.has_report_time);
     assert(!st.is_interim);
+    assert(st.has_period);
+    assert(st.period_from.year == 2025 && st.period_from.month == 1 && st.period_from.day == 1);
+    assert(st.period_to.year == 2025 && st.period_to.month == 1 && st.period_to.day == 31);
+    assert(st.copy_duplicate == "CCPY");
+    assert(st.reporting_from == "11" && st.reporting_to == "78");
     // The balances.
     assert(st.balance_count == 9);
     assert(st.opening.kind == bank_statement::BAL_OPENING);

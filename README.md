@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.25.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.26.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -167,6 +167,9 @@ The fields of the statement come from these elements.
 | `number` | `ElctrncSeqNb` |
 | `sequence` | `LglSeqNb` |
 | `report_date`, `report_minutes`, `report_offset` | `CreDtTm` |
+| `period_from`, `period_to`, `has_period` | `FrToDt`, through `FrDtTm` and `ToDtTm` or `FrDt` and `ToDt` |
+| `copy_duplicate` | `CpyDplctInd` |
+| `reporting_from`, `reporting_to` | `RptgSeq`, through `FrToSeq/From` and `FrToSeq/To`, or `FrSeq` and `ToSeq` |
 
 The type code of a balance gives its kind. The code text stays on every balance in `code`.
 

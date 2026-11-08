@@ -208,6 +208,15 @@ struct Statement {
     report_minutes: i32,
     report_offset: i32,
     has_report_time: bool,
+    // The camt fields of the statement container. The period is the
+    // FrToDt element, the flag is the CpyDplctInd element, and the two
+    // texts are the RptgSeq element.
+    period_from: Date,
+    period_to: Date,
+    has_period: bool,
+    copy_duplicate: const u8[:],
+    reporting_from: const u8[:],
+    reporting_to: const u8[:],
     debit_count: i64,
     debit_total: Amount,
     has_debit_total: bool,
@@ -291,6 +300,8 @@ fn new_statement() -> Statement {
         is_interim: false, balance_checked: false,
         floor: z, floor_mark: 0, floor2: z, floor2_mark: 0,
         report_date: no_date(), report_minutes: 0, report_offset: 0, has_report_time: false,
+        period_from: no_date(), period_to: no_date(), has_period: false,
+        copy_duplicate: "", reporting_from: "", reporting_to: "",
         debit_count: 0, debit_total: z, has_debit_total: false,
         credit_count: 0, credit_total: z, has_credit_total: false,
     };

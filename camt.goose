@@ -687,6 +687,53 @@ fn camt_statement(doc: xml::Doc&, id: i32, kind: i32, grp: i32, lim: Limits&,
     }
     // A report and a notification are interim statements.
     if kind != 2 { statements[cur].is_interim = true; }
+    // The period, the copy flag and the reporting sequence.
+    let ft = c_child(doc, id, "FrToDt");
+    if ft >= 0 {
+        var fv, has1 = c_text(doc, ft, "FrDtTm", buf);
+        if !has1 { var fv2, has2 = c_text(doc, ft, "FrDt", buf); if has2 { fv = fv2; has1 = has2; } }
+        if has1 {
+            var fd, fok = camt_date(fv);
+            if !fok {
+                let fd2, _, _, dok = camt_datetime(fv);
+                if dok {
+                    statements[cur].period_from = fd2;
+                    statements[cur].has_period = true;
+                }
+            } else {
+                statements[cur].period_from = fd;
+                statements[cur].has_period = true;
+            }
+        }
+        var tv, has3 = c_text(doc, ft, "ToDtTm", buf);
+        if !has3 { var tv2, has4 = c_text(doc, ft, "ToDt", buf); if has4 { tv = tv2; has3 = has4; } }
+        if has3 {
+            var td, tok = camt_date(tv);
+            if !tok {
+                let td2, _, _, dok2 = camt_datetime(tv);
+                if dok2 { statements[cur].period_to = td2; }
+            } else {
+                statements[cur].period_to = td;
+            }
+        }
+    }
+    let cpd, hasc = c_text(doc, id, "CpyDplctInd", buf);
+    if hasc { statements[cur].copy_duplicate = cpd; }
+    let seq = c_child(doc, id, "RptgSeq");
+    if seq >= 0 {
+        let rng = c_child(doc, seq, "FrToSeq");
+        if rng >= 0 {
+            let from, has1 = c_text(doc, rng, "From", buf);
+            if has1 { statements[cur].reporting_from = from; }
+            let to, has2 = c_text(doc, rng, "To", buf);
+            if has2 { statements[cur].reporting_to = to; }
+        } else {
+            let from, has1 = c_text(doc, seq, "FrSeq", buf);
+            if has1 { statements[cur].reporting_from = from; }
+            let to, has2 = c_text(doc, seq, "ToSeq", buf);
+            if has2 { statements[cur].reporting_to = to; }
+        }
+    }
     // The balances.
     let bal_start = balances.len;
     var b = doc.nodes[id].first_child;
