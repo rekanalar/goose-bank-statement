@@ -29,6 +29,71 @@ struct CamtOptions {
     skip_balance_check: bool,
 }
 
+// CamtHeader holds the group header of a camt message. The kind is 1
+// for a report, 2 for a statement and 3 for a notification. The
+// entry count and the names stay text; the creation time is a typed
+// date with the offset in minutes.
+struct CamtHeader {
+    kind: i32,
+    message_id: const u8[:],
+    has_creation: bool,
+    creation: Date,
+    creation_minutes: i32,
+    creation_offset: i32,
+    entry_count: const u8[:],
+    additional_info: const u8[:],
+    initiator: const u8[:],
+    recipient: const u8[:],
+}
+
+// camt_header reads the group header of the message into a record. A
+// field that the message holds not stays empty.
+fn camt_header(doc: xml::Doc&, kind: i32, grp: i32, buf: u8[>..]&) -> CamtHeader {
+    var h = CamtHeader {
+        kind: kind, message_id: "", has_creation: false, creation: no_date(),
+        creation_minutes: 0, creation_offset: 0, entry_count: "", additional_info: "",
+        initiator: "", recipient: "",
+    };
+    if grp < 0 { return h; }
+    let mid, has = c_text(doc, grp, "MsgId", buf);
+    if has { h.message_id = mid; }
+    let cnt, has2 = c_text(doc, grp, "NbOfTxs", buf);
+    if has2 { h.entry_count = cnt; }
+    let inf, has3 = c_text(doc, grp, "AddtlInf", buf);
+    if has3 { h.additional_info = inf; }
+    let cdt, has4 = c_text(doc, grp, "CreDtTm", buf);
+    if !has4 {
+        let cd, has5 = c_text(doc, grp, "CreDt", buf);
+        if has5 {
+            let d, ok = camt_date(cd);
+            if ok {
+                h.creation = d;
+                h.has_creation = true;
+            }
+        }
+    }
+    if has4 {
+        let d, mins, off, ok = camt_datetime(cdt);
+        if ok {
+            h.creation = d;
+            h.creation_minutes = mins;
+            h.creation_offset = off;
+            h.has_creation = true;
+        }
+    }
+    let init = c_child(doc, grp, "InitgPty");
+    if init >= 0 {
+        let nm, has6 = c_text(doc, init, "Nm", buf);
+        if has6 { h.initiator = nm; }
+    }
+    let rcpt = c_child(doc, grp, "MsgRcpt");
+    if rcpt >= 0 {
+        let nm, has7 = c_text(doc, rcpt, "Nm", buf);
+        if has7 { h.recipient = nm; }
+    }
+    return h;
+}
+
 // c_child gives the first child element of the element with the local
 // name. It gives -1 when the element has no such child.
 fn c_child(doc: xml::Doc&, id: i32, local: const u8[:]) -> i32 {
@@ -691,7 +756,7 @@ fn camt_checks(st: Statement&, entries: Entry[>..]&, opts: CamtOptions&, stateme
 }
 
 // parse_camt reads a camt document into the arrays of the caller.
-fn parse_camt(input: const u8[:], lim: Limits&, opts: CamtOptions&,
+fn parse_camt(input: const u8[:], lim: Limits&, opts: CamtOptions&, header: CamtHeader&,
               statements: Statement[>..]&, entries: Entry[>..]&, balances: Balance[>..]&,
               buf: u8[>..]&) -> Fault {
     let fi = check_input(input, lim);
@@ -727,5 +792,6 @@ fn parse_camt(input: const u8[:], lim: Limits&, opts: CamtOptions&,
         c = n.next_sibling;
     }
     if found == 0 { return fault(F_SYNTAX, 0, 0, "Document", "the document has no camt statement"); }
+    header = camt_header(doc, kind, grp, buf);
     return no_fault();
 }

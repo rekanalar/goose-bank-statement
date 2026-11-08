@@ -51,11 +51,13 @@ fn main() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_camt(DOC, lim, opts, sts, ens, bals, buf);
+    var hd1 = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(DOC, lim, opts, hd1, sts, ens, bals, buf);
     if f.kind != 0 {
         print("error: ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail);
         return 1;
     }
+    print("message ", hd1.message_id, " kind ", hd1.kind, " entries ", hd1.entry_count);
     for st in sts {
         print("statement ", st.reference, " account ", st.account, " sequence ", st.sequence);
         print("  opening ", st.opening.amount.minor, " minor units ", st.opening.amount.currency, " code ", st.opening.code);

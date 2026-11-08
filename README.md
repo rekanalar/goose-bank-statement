@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.19.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.20.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -36,7 +36,7 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_mt940(input, lim, opts, statements, entries, balances, notes)` | reads a file of MT940 or MT942 statements; gives a `Fault` |
 | `split_narrative(raw, lim, out)` | splits a `:86:` text into `?NN` subfields or `/KEY/value/` pairs; gives `kind, Fault` |
 | `parse_qif(input, lim, opts, records, splits, extra)` | reads a QIF file; gives a `Fault` |
-| `parse_camt(input, lim, opts, statements, entries, balances, buf)` | reads a camt.052, camt.053 or camt.054 document; gives a `Fault` |
+| `parse_camt(input, lim, opts, header, statements, entries, balances, buf)` | reads a camt.052, camt.053 or camt.054 document with its group header; gives a `Fault` |
 | `parse_ofx(input, lim, opts, statements, entries, balances, notes, buf)` | reads an OFX 1.x or OFX 2.x file; gives a `Fault` |
 | `parse_ofx_securities(input, lim, securities, notes, buf)` | reads the security list of an OFX file; gives a `Fault` |
 | `write_ofx_securities(securities, notes, opts, lim, out)` | appends a security list as an OFX file; gives a `Fault` |
@@ -145,6 +145,10 @@ The document itself may go away after the call.
 | camt.053 | `Stmt` of `BkToCstmrStmt` | not interim |
 | camt.054 | `Ntfctn` of `BkToCstmrDbtCdtNtfctn` | interim |
 
+The header of the message is a `CamtHeader`. It holds the kind, the message id, and the creation date and time with the offset.
+It holds the entry count, the additional information, and the names of the initiator and the recipient.
+The entry count and the names stay text. A field that the message holds not stays empty.
+
 An element name matches after the namespace.
 So any schema version from `.001.01` to `.001.14` parses, and any prefix works.
 An element the reader does not know is ignored.
@@ -214,7 +218,8 @@ var bals: bank_statement::Balance[>..] = [];
 var buf: u8[>..] = [];
 let lim = bank_statement::default_limits();
 let opts = bank_statement::CamtOptions { .. };
-let f = bank_statement::parse_camt(text, lim, opts, sts, ens, bals, buf);
+var hd = bank_statement::CamtHeader { .. };
+let f = bank_statement::parse_camt(text, lim, opts, hd, sts, ens, bals, buf);
 if f.kind != 0 { print(bank_statement::kind_name(f.kind), " in ", f.tag); }
 ```
 
@@ -600,7 +605,8 @@ The QIF date has no standard order, so the caller chooses it.
 
 This package is below `v1.0.0`. These gaps against the reference libraries stay open.
 
-- **The camt reader reads the statements, not the whole message.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message.
+- **`parse_camt` takes the header as a parameter now.** The old form was `parse_camt(input, lim, opts, statements, entries, balances, buf)`. The new form adds `header` after `opts`. A caller binds a `CamtHeader` and passes it.
+- **The camt reader reads the group header and the statements.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message. The business application header of the wrapper stays unread.
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **The investment statement, the sign-on request and bill pay have no typed record.** The element tree writer writes them. It checks each element against the rules. Python `ofxtools` and Go `ofxgo` model each element.

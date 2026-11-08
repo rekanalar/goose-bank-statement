@@ -723,7 +723,7 @@ const CAMT53: const u8[:] = """
 <?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
   <BkToCstmrStmt>
-    <GrpHdr><MsgId>MSG-1</MsgId><CreDtTm>2025-01-02T15:30:00+01:00</CreDtTm></GrpHdr>
+    <GrpHdr><MsgId>MSG-1</MsgId><CreDtTm>2025-01-02T15:30:00+01:00</CreDtTm><NbOfTxs>3</NbOfTxs><AddtlInf>settlement daily</AddtlInf><InitgPty><Nm>Main St Ltd</Nm></InitgPty><MsgRcpt><Nm>Acme Corp</Nm></MsgRcpt></GrpHdr>
     <Stmt>
       <Id>STMT-1</Id>
       <ElctrncSeqNb>42</ElctrncSeqNb>
@@ -1316,7 +1316,8 @@ fn run_camt(text: const u8[:], skip: bool, kind: i32) {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_camt(text, lim, opts, sts, ens, bals, buf);
+    var hd1 = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(text, lim, opts, hd1, sts, ens, bals, buf);
     if f.kind != kind { print("FAIL camt want ", bank_statement::kind_name(kind), " got ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == kind);
 }
@@ -1328,7 +1329,8 @@ fn test_camt_statement() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_camt(CAMT53, lim, opts, sts, ens, bals, buf);
+    var hd2 = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(CAMT53, lim, opts, hd2, sts, ens, bals, buf);
     if f.kind != 0 { print("FAIL camt53 ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(sts.len == 1);
@@ -1385,7 +1387,8 @@ fn test_camt_interim() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_camt(CAMT52, lim, opts, sts, ens, bals, buf);
+    var hd3 = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(CAMT52, lim, opts, hd3, sts, ens, bals, buf);
     assert(f.kind == 0);
     assert(sts.len == 1 && sts[0].is_interim);
     assert(sts[0].reference == "RPT-1" && sts[0].related_ref == "RPT-MSG");
@@ -1401,7 +1404,8 @@ fn test_camt_interim() {
     var ens2: bank_statement::Entry[>..] = [];
     var bals2: bank_statement::Balance[>..] = [];
     var buf2: u8[>..] = [];
-    let g = bank_statement::parse_camt(CAMT54, lim, opts, sts2, ens2, bals2, buf2);
+    var hd4 = bank_statement::CamtHeader { .. };
+    let g = bank_statement::parse_camt(CAMT54, lim, opts, hd4, sts2, ens2, bals2, buf2);
     assert(g.kind == 0);
     assert(sts2.len == 1 && sts2[0].is_interim);
     assert(sts2[0].reference == "NTF-1" && sts2[0].related_ref == "NTF-MSG");
@@ -1421,7 +1425,8 @@ fn test_camt_versions() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_camt(CAMT02, lim, opts, sts, ens, bals, buf);
+    var hd5 = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(CAMT02, lim, opts, hd5, sts, ens, bals, buf);
     assert(f.kind == 0);
     assert(sts[0].reference == "OLD-STMT" && sts[0].account == "OLD-ACC");
     assert(sts[0].report_date.year == 2013 && sts[0].report_minutes == 8 * 60);
@@ -1432,7 +1437,8 @@ fn test_camt_versions() {
     var ens2: bank_statement::Entry[>..] = [];
     var bals2: bank_statement::Balance[>..] = [];
     var buf2: u8[>..] = [];
-    let g = bank_statement::parse_camt(CAMTPREFIX, lim, opts, sts2, ens2, bals2, buf2);
+    var hd6 = bank_statement::CamtHeader { .. };
+    let g = bank_statement::parse_camt(CAMTPREFIX, lim, opts, hd6, sts2, ens2, bals2, buf2);
     assert(g.kind == 0);
     assert(sts2[0].reference == "P-STMT" && sts2[0].related_ref == "P-1");
     assert(sts2[0].opening.amount.minor == 0 && sts2[0].closing.amount.minor == 0);
@@ -1497,7 +1503,8 @@ fn test_camt_faults() {
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
     let opts = bank_statement::CamtOptions { .. };
-    let f = bank_statement::parse_camt(CAMT53, lim, opts, sts, ens, bals, buf);
+    var hd7 = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(CAMT53, lim, opts, hd7, sts, ens, bals, buf);
     assert(f.kind == 1);
 }
 
@@ -1510,7 +1517,8 @@ fn test_camt_two_statements() {
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
     let doc = "<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Id>S1</Id></Stmt><Stmt><Id>S2</Id></Stmt></BkToCstmrStmt></Document>";
-    let f = bank_statement::parse_camt(doc, lim, opts, sts, ens, bals, buf);
+    var hd8 = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(doc, lim, opts, hd8, sts, ens, bals, buf);
     assert(f.kind == 0);
     assert(sts.len == 2);
     assert(sts[0].reference == "S1" && sts[1].reference == "S2");
@@ -1524,7 +1532,8 @@ fn test_camt_real_documents() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_camt(REAL52, lim, opts, sts, ens, bals, buf);
+    var hd9 = bank_statement::CamtHeader { .. };
+    let f = bank_statement::parse_camt(REAL52, lim, opts, hd9, sts, ens, bals, buf);
     assert(f.kind == 0);
     assert(sts.len == 1 && sts[0].is_interim);
     assert(ens.len == 2 && bals.len == 2);
@@ -1542,7 +1551,8 @@ fn test_camt_real_documents() {
     var ens2: bank_statement::Entry[>..] = [];
     var bals2: bank_statement::Balance[>..] = [];
     var buf2: u8[>..] = [];
-    let g = bank_statement::parse_camt(REAL54, lim, opts, sts2, ens2, bals2, buf2);
+    var hd10 = bank_statement::CamtHeader { .. };
+    let g = bank_statement::parse_camt(REAL54, lim, opts, hd10, sts2, ens2, bals2, buf2);
     assert(g.kind == 0);
     assert(sts2.len == 1 && sts2[0].is_interim && ens2.len == 1 && bals2.len == 0);
     assert(ens2[0].mark == "C" && ens2[0].amount.minor == 150000 && ens2[0].amount.currency == "CHF");
@@ -1553,14 +1563,16 @@ fn test_camt_real_documents() {
     var ens3: bank_statement::Entry[>..] = [];
     var bals3: bank_statement::Balance[>..] = [];
     var buf3: u8[>..] = [];
-    let h = bank_statement::parse_camt(REAL53, lim, opts, sts3, ens3, bals3, buf3);
+    var hd11 = bank_statement::CamtHeader { .. };
+    let h = bank_statement::parse_camt(REAL53, lim, opts, hd11, sts3, ens3, bals3, buf3);
     assert(h.kind == 7 && h.tag == "Bal");
     var sts4: bank_statement::Statement[>..] = [];
     var ens4: bank_statement::Entry[>..] = [];
     var bals4: bank_statement::Balance[>..] = [];
     var buf4: u8[>..] = [];
     let opts2 = bank_statement::CamtOptions { skip_balance_check: true };
-    let k = bank_statement::parse_camt(REAL53, lim, opts2, sts4, ens4, bals4, buf4);
+    var hd12 = bank_statement::CamtHeader { .. };
+    let k = bank_statement::parse_camt(REAL53, lim, opts2, hd12, sts4, ens4, bals4, buf4);
     assert(k.kind == 0);
     assert(sts4.len == 1 && ens4.len == 5 && bals4.len == 4);
     assert(sts4[0].opening.amount.minor == 21199319 && sts4[0].closing.amount.minor == 21511221);
