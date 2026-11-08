@@ -2901,6 +2901,80 @@ fn test_country() {
     assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, out).kind == bank_statement::F_SYNTAX);
 }
 
+const PROFILE_SGML: const u8[:] = """
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:NONE
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX><PROFMSGSRSV1><PROFTRNRS><TRNUID>1<STATUS><CODE>0<SEVERITY>INFO</STATUS><PROFRS>
+<MSGSETLIST>
+<SIGNONMSGSET><SIGNONMSGSETV1><MSGSETCORE><VER>1<URL>https://bank.example/ofx<OFXSEC>TYPE1<TRANSPSEC>Y<SIGNONREALM>BANK<LANGUAGE>ENG<SYNCMODE>FULL<RESPFILEER>N</MSGSETCORE></SIGNONMSGSETV1></SIGNONMSGSET>
+<BANKMSGSET><BANKMSGSETV1><MSGSETCORE><VER>1<URL>https://bank.example/bank<OFXSEC>NONE<TRANSPSEC>N<SIGNONREALM>BANK<LANGUAGE>ENG<SYNCMODE>LITE<RESPFILEER>N<SPNAME>Fiserv</MSGSETCORE><INVALIDACCTTYPE>CREDITLINE<CLOSINGAVAIL>Y</BANKMSGSETV1></BANKMSGSET>
+</MSGSETLIST>
+<SIGNONINFOLIST><SIGNONINFO><SIGNONREALM>BANK<MIN>4<MAX>12<CHARTYPE>ALPHAANDNUMERIC<CASESEN>Y<SPECIAL>N<SPACES>N<PINCH>Y<CHGPINFIRST>N<USERCRED1LABEL>Branch</SIGNONINFO></SIGNONINFOLIST>
+<DTPROFUP>20200115<FINAME>Test Bank &amp; Trust<ADDR1>1 Main St<CITY>Springfield<STATE>IL<POSTALCODE>62701<COUNTRY>USA<CSPHONE>800-555-0100<URL>https://bank.example<EMAIL>help@bank.example
+</PROFRS></PROFTRNRS></PROFMSGSRSV1></OFX>
+""";
+
+fn test_ofx_profile() {
+    let lim = bank_statement::default_limits();
+    var pr = bank_statement::OfxProfile { found: false, updated: bank_statement::no_date(), name: "", addr1: "", addr2: "", addr3: "", city: "", state: "", postal_code: "", country: "", cs_phone: "", ts_phone: "", fax_phone: "", url: "", email: "" };
+    var sn: bank_statement::OfxSignonInfo[>..] = [];
+    var ms: bank_statement::OfxMsgSet[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx_profile(PROFILE_SGML, lim, pr, sn, ms, notes, buf);
+    if f.kind != 0 { print("FAIL profile ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(pr.found && pr.name == "Test Bank & Trust" && pr.addr1 == "1 Main St" && pr.city == "Springfield");
+    assert(pr.state == "IL" && pr.postal_code == "62701" && pr.country == "USA" && pr.cs_phone == "800-555-0100");
+    assert(pr.url == "https://bank.example" && pr.email == "help@bank.example");
+    assert(pr.updated.year == 2020 && pr.updated.month == 1 && pr.updated.day == 15);
+    assert(sn.len == 1 && sn[0].realm == "BANK" && sn[0].min == 4 && sn[0].max == 12);
+    assert(sn[0].char_type == "ALPHAANDNUMERIC" && sn[0].case_sen && !sn[0].special && sn[0].pin_change && sn[0].usercred1_label == "Branch");
+    assert(ms.len == 2 && ms[0].kind == "SIGNONMSGSET" && ms[0].ver == "1" && ms[0].url == "https://bank.example/ofx");
+    assert(ms[0].sec == "TYPE1" && ms[0].trans_psec == "Y" && ms[0].realm == "BANK" && ms[0].note_count == 3);
+    assert(ms[1].kind == "BANKMSGSET" && ms[1].sp_name == "Fiserv" && ms[1].note_count == 5);
+    assert(notes[ms[1].note_start + 3].tag == "INVALIDACCTTYPE" && notes[ms[1].note_start + 3].value == "CREDITLINE");
+    // A file without a profile gives found false.
+    var p2 = pr;
+    p2.found = false;
+    var s2: bank_statement::OfxSignonInfo[>..] = [];
+    var m2: bank_statement::OfxMsgSet[>..] = [];
+    var n2: bank_statement::Note[>..] = [];
+    var b2: u8[>..] = [];
+    assert(bank_statement::parse_ofx_profile(OFX_EXTRA, lim, p2, s2, m2, n2, b2).kind == 0 && !p2.found);
+    // A flag that is not Y or N is a fault.
+    let at = find(PROFILE_SGML, "<CASESEN>Y");
+    assert(at > 0);
+    var tb: u8[>..] = [];
+    bank_statement::put(tb, PROFILE_SGML[..at]);
+    bank_statement::put(tb, "<CASESEN>maybe");
+    bank_statement::put(tb, PROFILE_SGML[at + 10..]);
+    let bad: const u8[:] = tb;
+    var s3: bank_statement::OfxSignonInfo[>..] = [];
+    var m3: bank_statement::OfxMsgSet[>..] = [];
+    var n3: bank_statement::Note[>..] = [];
+    var b3: u8[>..] = [];
+    var p3 = pr;
+    assert(bank_statement::parse_ofx_profile(bad, lim, p3, s3, m3, n3, b3).kind == bank_statement::F_SYNTAX);
+    // A small record limit is a fault.
+    var small = bank_statement::default_limits();
+    small.max_records = 1;
+    var s4: bank_statement::OfxSignonInfo[>..] = [];
+    var m4: bank_statement::OfxMsgSet[>..] = [];
+    var n4: bank_statement::Note[>..] = [];
+    var b4: u8[>..] = [];
+    var p4 = pr;
+    assert(bank_statement::parse_ofx_profile(PROFILE_SGML, small, p4, s4, m4, n4, b4).kind == bank_statement::F_LIMIT);
+}
+
 fn test_write_qif_lists() {
     let text: const u8[:] = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNFood:Dining\nE\n^\n!Type:Class\nNHome\n^\n!Type:Bank\nD01/02/2025\nT-5.00\nPShop\n^\n";
     let lim = bank_statement::default_limits();
@@ -3375,6 +3449,7 @@ fn main() {
     test_qif_item_lists();
     test_ofx_seclist();
     test_country();
+    test_ofx_profile();
     test_qif_item_faults();
     test_write_ofx();
     test_write_mt940();

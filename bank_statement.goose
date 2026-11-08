@@ -31,5 +31,6 @@ import sgml;
 import ofx;
 import ofx_write;
 import ofx_seclist;
+import ofx_profile;
 import camt;
 import transcode;
