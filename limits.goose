@@ -21,7 +21,8 @@ struct Limits {
 }
 
 // default_limits gives the safe defaults: 16 MiB of input, 4096 bytes
-// in a line or a field, and counts that no honest file reaches.
+// in a line or a field, a nesting of 16, and counts that no honest
+// file reaches.
 fn default_limits() -> Limits {
     return Limits {
         max_input: 16777216,
@@ -32,7 +33,7 @@ fn default_limits() -> Limits {
         max_statements: 100000,
         max_records: 1000000,
         max_fields: 4000000,
-        max_depth: 8,
+        max_depth: 16,
     };
 }
 
