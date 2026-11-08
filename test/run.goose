@@ -124,7 +124,7 @@ const STMT1: const u8[:] = "{1:F01BANKBEBBAXXX0000000000}{2:O9401234250101BANKDE
 
 // parse_kind parses text and gives only the fault. The arrays are local.
 fn parse_kind(text: const u8[:], lim: bank_statement::Limits&, skip: bool) -> bank_statement::Fault {
-    let opts = bank_statement::Mt940Options { skip_balance_check: skip };
+    let opts = bank_statement::Mt940Options { skip_balance_check: skip, check_fields: false };
     var sts: bank_statement::Statement[>..] = [];
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
@@ -263,7 +263,7 @@ fn test_balance_checked() {
     var notes: bank_statement::Note[>..] = [];
     let text = ":20:A\n:60F:C250101EUR0,00\n:62F:C250101EUR0,00\n";
     let on = bank_statement::Mt940Options { .. };
-    let off = bank_statement::Mt940Options { skip_balance_check: true };
+    let off = bank_statement::Mt940Options { skip_balance_check: true, check_fields: false };
     let f = bank_statement::parse_mt940(text, lim, on, sts, ens, bals, notes);
     assert(f.kind == 0 && sts[0].balance_checked);
     var sts2: bank_statement::Statement[>..] = [];
@@ -602,7 +602,7 @@ fn test_mt940_64_65() {
     var ens3: bank_statement::Entry[>..] = [];
     var bals3: bank_statement::Balance[>..] = [];
     var notes3: bank_statement::Note[>..] = [];
-    let off = bank_statement::Mt940Options { skip_balance_check: true };
+    let off = bank_statement::Mt940Options { skip_balance_check: true, check_fields: false };
     let h = bank_statement::parse_mt940(":20:A\n:65:C250101EUR1,00\n:65:C250102EUR2,00\n", lim, off, sts3, ens3, bals3, notes3);
     assert(h.kind == 0 && sts3[0].forward.amount.minor == 200);
 }
@@ -2021,6 +2021,162 @@ fn test_ofx_forms() {
     assert(k.kind == 0);
 }
 
+// fields_kind parses text with the field rules on and gives the fault.
+fn fields_kind(text: const u8[:]) -> bank_statement::Fault {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    return bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+}
+
+fn expect_fields(text: const u8[:], kind: i32, tag: const u8[:]) {
+    let f = fields_kind(text);
+    if f.kind != kind || f.tag != tag {
+        print("FAIL fields want ", bank_statement::kind_name(kind), " ", tag, " got ", bank_statement::kind_name(f.kind), " line ", f.line, " tag ", f.tag, " ", f.detail, "\n");
+    }
+    assert(f.kind == kind);
+    assert(f.tag == tag);
+}
+
+// fill gives n copies of the letter c.
+fn fill(c: u8, n: i64, out: u8[>..]&) {
+    var i = 0;
+    while i < n { out.push(c); i += 1; }
+}
+
+// stmt_with builds a small statement whose :20: and :25: take the given text.
+fn stmt_with(ref20: const u8[:], acct: const u8[:], out: u8[>..]&) {
+    format(out, ":20:"); format(out, ref20);
+    format(out, "\n:25:"); format(out, acct);
+    format(out, "\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n");
+}
+
+fn test_swift_fields() {
+    // A file that keeps the manual parses with the rules on and gives
+    // the same values as with the rules off.
+    assert(fields_kind(STMT1).kind == 0);
+    // The widths: 16 passes, 17 fails.
+    var a: u8[>..] = [];
+    fill('A', 16, a);
+    var b: u8[>..] = [];
+    stmt_with(a, "ACC", b);
+    assert(fields_kind(b).kind == 0);
+    var c: u8[>..] = [];
+    fill('A', 17, c);
+    var d: u8[>..] = [];
+    stmt_with(c, "ACC", d);
+    let f = fields_kind(d);
+    assert(f.kind == 2 && f.tag == "20");
+    // The same file parses with the rules off.
+    run_mt940(d, false, 0, "");
+    // The account: 35 passes, 36 fails.
+    var e: u8[>..] = [];
+    fill('9', 35, e);
+    var g: u8[>..] = [];
+    stmt_with("R", e, g);
+    assert(fields_kind(g).kind == 0);
+    var h: u8[>..] = [];
+    fill('9', 36, h);
+    var k: u8[>..] = [];
+    stmt_with("R", h, k);
+    expect_fields(k, 2, "25");
+}
+
+fn test_swift_charset() {
+    // Letters of both cases and the marks of the manual pass.
+    expect_fields(":20:Ab-1/2 (x)\n:25:A\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", 0, "");
+    // An ampersand and a byte above 127 are outside the set.
+    expect_fields(":20:A&B\n:25:A\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", 2, "20");
+    expect_fields(":20:R\n:25:A\n:28C:1/1\n:60F:C250101EUR1,00\n:61:250102C1,00NTRFREF\n:86:caf\xc3\xa9\n:62F:C250101EUR2,00\n", 2, "86");
+    // The rules off accept both.
+    run_mt940(":20:A&B\n:25:A\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", false, 0, "");
+}
+
+fn test_swift_numbers() {
+    // A currency of two letters and a count of six digits are faults.
+    expect_fields(":20:R\n:25:A\n:28C:1/1\n:60F:C250101EU1,00\n:62F:C250101EUR1,00\n", 2, "60F");
+    expect_fields(":20:R\n:25:A\n:28C:123456/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", 2, "28C");
+    expect_fields(":20:R\n:25:A\n:28C:1/1\n:34F:EUR0,\n:61:250102C1,00NTRFREF\n:90D:123456EUR1,00\n", 2, "90D");
+    // An amount with 16 digits is too wide.
+    expect_fields(":20:R\n:25:A\n:28C:1/1\n:60F:C250101EUR1234567890123456,\n:62F:C250101EUR1,00\n", 2, "60F");
+}
+
+fn test_swift_61() {
+    let head = ":20:R\n:25:A\n:28C:1/1\n:60F:C250101EUR10,00\n";
+    let tail = ":62F:C250101EUR11,00\n";
+    var ok: u8[>..] = [];
+    format(ok, head); format(ok, ":61:250102C1,00NTRF1234567890123456//1234567890123456\n");
+    fill('S', 34, ok); format(ok, "\n"); format(ok, tail);
+    assert(fields_kind(ok).kind == 0);
+    var long_cust: u8[>..] = [];
+    format(long_cust, head); format(long_cust, ":61:250102C1,00NTRF12345678901234567\n"); format(long_cust, tail);
+    expect_fields(long_cust, 2, "61");
+    var long_bank: u8[>..] = [];
+    format(long_bank, head); format(long_bank, ":61:250102C1,00NTRFA//12345678901234567\n"); format(long_bank, tail);
+    expect_fields(long_bank, 2, "61");
+    var long_sup: u8[>..] = [];
+    format(long_sup, head); format(long_sup, ":61:250102C1,00NTRFA\n");
+    fill('S', 35, long_sup); format(long_sup, "\n"); format(long_sup, tail);
+    expect_fields(long_sup, 2, "61");
+}
+
+fn test_swift_86() {
+    let head = ":20:R\n:25:A\n:28C:1/1\n:60F:C250101EUR10,00\n:61:250102C1,00NTRFREF\n:86:";
+    let tail = ":62F:C250101EUR11,00\n";
+    // Six lines of 65 pass. A seventh fails. A line of 66 fails.
+    var six: u8[>..] = [];
+    format(six, head);
+    var i = 0;
+    while i < 6 { fill('T', 65, six); format(six, "\n"); i += 1; }
+    format(six, tail);
+    assert(fields_kind(six).kind == 0);
+    var seven: u8[>..] = [];
+    format(seven, head);
+    i = 0;
+    while i < 7 { fill('T', 65, seven); format(seven, "\n"); i += 1; }
+    format(seven, tail);
+    expect_fields(seven, 2, "86");
+    var wide: u8[>..] = [];
+    format(wide, head); fill('T', 66, wide); format(wide, "\n"); format(wide, tail);
+    expect_fields(wide, 2, "86");
+    // The same file parses with the rules off.
+    run_mt940(seven, false, 0, "");
+}
+
+fn test_swift_order() {
+    // :25: before :21: is out of order.
+    expect_fields(":20:R\n:25:A\n:21:B\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", 2, "21");
+    // A statement without :25: or :28C: is a fault.
+    expect_fields(":20:R\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", 2, "28C");
+    expect_fields(":20:R\n:25:A\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", 2, "60F");
+    // An interim report with :34F: and :13D: before the opening balance passes.
+    assert(fields_kind(":20:I\n:25:A\n:28C:5/1\n:34F:EUR0,\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:90C:1EUR500,00\n").kind == 0);
+    // :NS: may follow any tag.
+    assert(fields_kind(":20:R\n:25:A\n:NS:note\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n").kind == 0);
+    // The options with the rules off accept the out-of-order file.
+    run_mt940(":20:R\n:25:A\n:21:B\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", false, 0, "");
+}
+
+fn test_swift_hostile() {
+    // A huge :20: faults at once with the rules on.
+    var big: u8[>..] = [];
+    fill('A', 4000, big);
+    var d: u8[>..] = [];
+    stmt_with(big, "A", d);
+    expect_fields(d, 2, "20");
+    // 100000 lines in one :86: fault on the field size.
+    var many: u8[>..] = [];
+    format(many, ":20:R\n:25:A\n:28C:1/1\n:60F:C250101EUR1,00\n:61:250102C1,00NTRFREF\n:86:");
+    var i = 0;
+    while i < 100000 { format(many, "x\n"); i += 1; }
+    format(many, ":62F:C250101EUR2,00\n");
+    let f = fields_kind(many);
+    assert(f.kind == 1 || f.kind == 2);
+}
+
 fn main() {
     test_hostile();
     test_hostile_qif();
@@ -2059,6 +2215,13 @@ fn main() {
     test_ofx_dates();
     test_ofx_faults();
     test_ofx_forms();
+    test_swift_fields();
+    test_swift_charset();
+    test_swift_numbers();
+    test_swift_61();
+    test_swift_86();
+    test_swift_order();
+    test_swift_hostile();
     test_amount();
     test_amount_faults();
     test_exponent();

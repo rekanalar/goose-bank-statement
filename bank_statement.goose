@@ -19,6 +19,7 @@ import amount;
 import currency;
 import date;
 import mt940;
+import swift;
 import qif;
 import sgml;
 import ofx;

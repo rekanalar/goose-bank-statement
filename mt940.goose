@@ -17,6 +17,7 @@ import limits;
 import amount;
 import date;
 import text;
+import swift;
 import qif;
 
 // The kinds of a balance.
@@ -125,17 +126,23 @@ struct Statement {
 }
 
 // Mt940Options holds the options of the reader. The zero value is the
-// safe one: the balance check runs.
+// safe one: the balance check runs. The flag check_fields turns on the
+// field rules of the SWIFT manual. It is off by default, because banks
+// send fields that are longer than the manual allows.
 struct Mt940Options {
     skip_balance_check: bool,
+    check_fields: bool,
 }
 
 // State is the working state of one parse. The open statement is the
-// element cur of the statement array. State holds no span, because the
-// compiler refuses a span in a local that the caller's array outlives.
+// element cur of the statement array. The last field holds the code of
+// the tag that came before, for the order machine. State holds no span,
+// because the compiler refuses a span in a local that the caller's array
+// outlives.
 struct State {
     cur: i64,
     open: bool,
+    last: i32,
 }
 
 // is_tag_char tells the characters that a tag holds.
@@ -194,7 +201,8 @@ fn new_statement() -> Statement {
 
 // parse_balance reads the value of :60F:, :60M:, :62F:, :62M:, :64: and
 // :65:. The shape is C or D, six digits, three letters and an amount.
-fn parse_balance(value: const u8[:], kind: i32, intermediate: bool, line_no: i64, tag: const u8[:]) -> Balance, Fault {
+// The check flag turns on the width of the amount.
+fn parse_balance(value: const u8[:], kind: i32, intermediate: bool, line_no: i64, tag: const u8[:], check: bool) -> Balance, Fault {
     var b = no_balance();
     let v = trim(value);
     if v.len < 11 { return b, fault(F_SYNTAX, line_no, 1, tag, "balance is too short"); }
@@ -203,6 +211,10 @@ fn parse_balance(value: const u8[:], kind: i32, intermediate: bool, line_no: i64
     if !ok { return b, fault(F_DATE, line_no, 2, tag, "balance date is not a date"); }
     let cur = v[7..10];
     if !is_letters(cur) { return b, fault(F_SYNTAX, line_no, 8, tag, "currency is not three letters"); }
+    if check {
+        let f = check_amount(tag, v[10..], line_no);
+        if f.kind != F_NONE { return b, f; }
+    }
     let a, f = parse_amount(v[10..], currency_exponent(cur), ',', 0);
     if f.kind != F_NONE { return b, with_pos(f, line_no, tag); }
     b.kind = kind;
@@ -221,8 +233,9 @@ fn near_year(vy: i64, vm: i64, em: i64) -> i64 {
     return vy;
 }
 
-// parse_entry reads the value of a :61: field.
-fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64) -> Entry, Fault {
+// parse_entry reads the value of a :61: field. The check flag turns on
+// the widths of the parts of the line.
+fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64, check: bool) -> Entry, Fault {
     var e = Entry {
         value_date: no_date(), entry_date: no_date(), mark: "", funds_code: 0,
         amount: Amount { minor: 0, exp: 2, currency: cur },
@@ -272,6 +285,10 @@ fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64) -> Entry, Fau
     let astart = i;
     while i < head.len && (is_digit(head[i]) || head[i] == ',') { i += 1; }
     if i == astart { return e, fault(F_AMOUNT, line_no, astart + 1, tag, "entry has no amount"); }
+    if check {
+        let f = check_amount(tag, head[astart..i], line_no);
+        if f.kind != F_NONE { return e, f; }
+    }
     let a, f = parse_amount(head[astart..i], currency_exponent(cur), ',', 0);
     if f.kind != F_NONE { return e, with_pos(f, line_no, tag); }
     e.amount = Amount { minor: a.minor, exp: a.exp, currency: cur };
@@ -291,6 +308,14 @@ fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64) -> Entry, Fau
         e.customer_ref = tail;
     }
     e.supplementary = trim(rest);
+    if check {
+        let f = check_width(tag, e.customer_ref, line_no, SW_CUSTOMER_REF);
+        if f.kind != F_NONE { return e, f; }
+        let g = check_width(tag, e.bank_ref, line_no, SW_BANK_REF);
+        if g.kind != F_NONE { return e, g; }
+        let h = check_width(tag, e.supplementary, line_no, SW_SUPPLEMENTARY);
+        if h.kind != F_NONE { return e, h; }
+    }
     return e, no_fault();
 }
 
@@ -350,6 +375,11 @@ fn check_totals(st: Statement&, entries: Entry[>..]&, line_no: i64, tag_d: const
 
 fn finalize(S: State&, lim: Limits&, opts: Mt940Options&, line_no: i64, statements: Statement[>..]&, entries: Entry[>..]&) -> Fault {
     let st = statements[S.cur];
+    // The manual requires :25: and :28C: in every statement.
+    if opts.check_fields {
+        if st.account.len == 0 { return fault(F_SYNTAX, line_no, 1, "25", "statement has no account"); }
+        if st.number.len == 0 { return fault(F_SYNTAX, line_no, 1, "28C", "statement has no statement number"); }
+    }
     // The check runs whenever both balances are present. An interim flag
     // (:34F: or :13D:) must not switch it off, or a forged line would.
     // Only a report with no balances at all goes without the check.
@@ -383,14 +413,18 @@ fn finalize(S: State&, lim: Limits&, opts: Mt940Options&, line_no: i64, statemen
 }
 
 // parse_floor reads a :34F: value: a currency, an optional D or C, and
-// an amount.
-fn parse_floor(value: const u8[:], line_no: i64) -> Amount, u8, Fault {
+// an amount. The check flag turns on the width of the amount.
+fn parse_floor(value: const u8[:], line_no: i64, check: bool) -> Amount, u8, Fault {
     let v = trim(value);
     let z = Amount { minor: 0, exp: 2, currency: "" };
     if v.len < 4 || !is_letters(v[0..3]) { return z, 0, fault(F_SYNTAX, line_no, 1, "34F", "floor limit needs a currency"); }
     var mark: u8 = 0;
     var i = 3;
     if v[3] == 'D' || v[3] == 'C' { mark = v[3]; i = 4; }
+    if check {
+        let f = check_amount("34F", v[i..], line_no);
+        if f.kind != F_NONE { return z, 0, f; }
+    }
     let a, f = parse_amount(v[i..], currency_exponent(v[0..3]), ',', 0);
     if f.kind != F_NONE { return z, 0, with_pos(f, line_no, "34F"); }
     return Amount { minor: a.minor, exp: a.exp, currency: v[0..3] }, mark, no_fault();
@@ -421,8 +455,9 @@ fn parse_report_time(value: const u8[:], S: State&, line_no: i64, statements: St
 }
 
 // parse_total reads a :90D: or :90C: value: a count, a currency and an
+// amount. The check flag turns on the widths of the count and of the
 // amount.
-fn parse_total(value: const u8[:], tag: const u8[:], line_no: i64) -> i64, Amount, Fault {
+fn parse_total(value: const u8[:], tag: const u8[:], line_no: i64, check: bool) -> i64, Amount, Fault {
     let v = trim(value);
     let z = Amount { minor: 0, exp: 2, currency: "" };
     var i = 0;
@@ -430,6 +465,12 @@ fn parse_total(value: const u8[:], tag: const u8[:], line_no: i64) -> i64, Amoun
     let n, ok = digits(v[..i]);
     if !ok || i + 4 > v.len || !is_letters(v[i..i + 3]) { return 0, z, fault(F_SYNTAX, line_no, 1, tag, "total is not count, currency and amount"); }
     let cur = v[i..i + 3];
+    if check {
+        let f = check_digits(tag, v[..i], line_no, SW_COUNT);
+        if f.kind != F_NONE { return 0, z, f; }
+        let g = check_amount(tag, v[i + 3..], line_no);
+        if g.kind != F_NONE { return 0, z, g; }
+    }
     let a, f = parse_amount(v[i + 3..], currency_exponent(cur), ',', 0);
     if f.kind != F_NONE { return 0, z, with_pos(f, line_no, tag); }
     return n, Amount { minor: a.minor, exp: a.exp, currency: cur }, no_fault();
@@ -449,11 +490,40 @@ fn push_note(S: State&, tag: const u8[:], value: const u8[:], lim: Limits&, line
     return no_fault();
 }
 
+// check_field_rules applies the field rules of the SWIFT manual to one
+// field. It checks the order of the tags and the width of the text
+// fields. The amounts and the parts of a statement line are checked
+// where the reader reads them.
+fn check_field_rules(tag: const u8[:], value: const u8[:], line_no: i64, S: State&) -> Fault {
+    // A statement starts at :20:. The tag before it belongs to the
+    // statement before, so the order does not matter there.
+    if tag != "20" {
+        if !tag_allowed(S.last, tag_code(tag)) {
+            return fault(F_SYNTAX, line_no, 1, tag, "the tag may not follow the tag of the field before it");
+        }
+    }
+    if tag == "20" || tag == "21" || tag == "25" || tag == "86" {
+        let cf = check_charset(tag, value, line_no);
+        if cf.kind != F_NONE { return cf; }
+    }
+    if tag == "20" || tag == "21" { return check_width(tag, trim(value), line_no, SW_REF); }
+    if tag == "25" { return check_width(tag, trim(value), line_no, SW_ACCOUNT); }
+    if tag == "28" || tag == "28C" { return check_statement_number(tag, trim(value), line_no); }
+    if tag == "86" { return check_86(tag, value, line_no); }
+    return no_fault();
+}
+
 // handle_field applies one complete field to the working state.
 fn handle_field(tag: const u8[:], value: const u8[:], line_no: i64, S: State&, lim: Limits&, opts: Mt940Options&,
                 statements: Statement[>..]&, entries: Entry[>..]&, balances: Balance[>..]&, notes: Note[>..]&) -> Fault {
     if !known_tag(tag) { return fault(F_UNKNOWN_TAG, line_no, 1, tag, "tag is not part of MT940 or MT942"); }
     if value.len > lim.max_field { return fault(F_LIMIT, line_no, 1, tag, "field is longer than max_field"); }
+    if opts.check_fields {
+        let f = check_field_rules(tag, value, line_no, S);
+        if f.kind != F_NONE { return f; }
+    }
+    // A :NS: field leaves the order state as it was.
+    if tag != "NS" { S.last = tag_code(tag); }
     if tag == "20" {
         if S.open {
             let f = finalize(S, lim, opts, line_no, statements, entries);
@@ -481,14 +551,14 @@ fn handle_field(tag: const u8[:], value: const u8[:], line_no: i64, S: State&, l
     if tag == "NS" { return push_note(S, tag, trim(value), lim, line_no, statements, notes); }
     if tag == "60F" || tag == "60M" {
         if statements[S.cur].opening.kind != 0 { return fault(F_SYNTAX, line_no, 1, tag, "second opening balance"); }
-        let b, f = parse_balance(value, BAL_OPENING, tag == "60M", line_no, tag);
+        let b, f = parse_balance(value, BAL_OPENING, tag == "60M", line_no, tag, opts.check_fields);
         if f.kind != F_NONE { return f; }
         statements[S.cur].opening = b;
         return push_balance(S, b, lim, line_no, tag, statements, balances);
     }
     if tag == "62F" || tag == "62M" {
         if statements[S.cur].closing.kind != 0 { return fault(F_SYNTAX, line_no, 1, tag, "second closing balance"); }
-        let b, f = parse_balance(value, BAL_CLOSING, tag == "62M", line_no, tag);
+        let b, f = parse_balance(value, BAL_CLOSING, tag == "62M", line_no, tag, opts.check_fields);
         if f.kind != F_NONE { return f; }
         statements[S.cur].closing = b;
         return push_balance(S, b, lim, line_no, tag, statements, balances);
@@ -496,7 +566,7 @@ fn handle_field(tag: const u8[:], value: const u8[:], line_no: i64, S: State&, l
     if tag == "64" || tag == "65" {
         var kind = BAL_AVAILABLE;
         if tag == "65" { kind = BAL_FORWARD; }
-        let b, f = parse_balance(value, kind, false, line_no, tag);
+        let b, f = parse_balance(value, kind, false, line_no, tag, opts.check_fields);
         if f.kind != F_NONE { return f; }
         if tag == "64" {
             if statements[S.cur].available.kind != 0 { return fault(F_SYNTAX, line_no, 1, tag, "second closing available balance"); }
@@ -515,7 +585,7 @@ fn handle_field(tag: const u8[:], value: const u8[:], line_no: i64, S: State&, l
         var cur = statements[S.cur].opening.amount.currency;
         if cur.len == 0 { cur = statements[S.cur].floor.currency; }
         if cur.len == 0 { return fault(F_SYNTAX, line_no, 1, tag, "entry has no currency: put :60F: or :34F: before it"); }
-        let e, f = parse_entry(value, cur, line_no);
+        let e, f = parse_entry(value, cur, line_no, opts.check_fields);
         if f.kind != F_NONE { return f; }
         entries.push(e);
         statements[S.cur].entry_count += 1;
@@ -532,7 +602,7 @@ fn handle_field(tag: const u8[:], value: const u8[:], line_no: i64, S: State&, l
     }
     if tag == "34F" {
         if statements[S.cur].floor_mark != 0 && statements[S.cur].floor2_mark != 0 { return fault(F_SYNTAX, line_no, 1, tag, "third floor limit"); }
-        let a, m, f = parse_floor(value, line_no);
+        let a, m, f = parse_floor(value, line_no, opts.check_fields);
         if f.kind != F_NONE { return f; }
         statements[S.cur].is_interim = true;
         if statements[S.cur].floor.currency.len == 0 { statements[S.cur].floor = a; statements[S.cur].floor_mark = m; if m == 0 { statements[S.cur].floor_mark = '-'; } }
@@ -541,7 +611,7 @@ fn handle_field(tag: const u8[:], value: const u8[:], line_no: i64, S: State&, l
     }
     if tag == "13D" { return parse_report_time(value, S, line_no, statements); }
     if tag == "90D" || tag == "90C" {
-        let n, a, f = parse_total(value, tag, line_no);
+        let n, a, f = parse_total(value, tag, line_no, opts.check_fields);
         if f.kind != F_NONE { return f; }
         if tag == "90D" {
             if statements[S.cur].has_debit_total { return fault(F_SYNTAX, line_no, 1, tag, "second debit total"); }
@@ -599,7 +669,7 @@ fn parse_mt940(input: const u8[:], lim: Limits&, opts: Mt940Options&,
                statements: Statement[>..]&, entries: Entry[>..]&, balances: Balance[>..]&, notes: Note[>..]&) -> Fault {
     let fi = check_input(input, lim);
     if fi.kind != F_NONE { return fi; }
-    var S = State { cur: 0, open: false };
+    var S = State { cur: 0, open: false, last: T_NONE };
     var pos = skip_bom(input);
     var line_no: i64 = 0;
     var have = false;

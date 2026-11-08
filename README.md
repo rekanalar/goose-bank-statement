@@ -16,7 +16,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.4.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.5.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -63,7 +63,34 @@ The four balances of the statement are copies of the matching lines of the balan
 A statement that holds none of them holds kind 0 in the field.
 A second `:64:` is a fault. A second `:65:` replaces the value of the first.
 
-`Mt940Options` holds one flag. `skip_balance_check` is false by default.
+`Mt940Options` holds two flags. `skip_balance_check` and `check_fields` are false by default.
+
+#### The field rules of the SWIFT manual
+
+The flag `check_fields` turns on the field rules of the manual. It adds faults. It never changes a value.
+Banks send fields that are longer than the manual allows, so the flag is off by default.
+Turn it on for the banks that keep the manual.
+
+| Field | Rule |
+|---|---|
+| `:20:`, `:21:` | at most 16 characters |
+| `:25:` | at most 35 characters |
+| `:28:`, `:28C:` | up to three parts of digits, at most 5 digits each |
+| `:34F:`, `:60F:`, `:60M:`, `:62F:`, `:62M:`, `:64:`, `:65:` | the amount has at most 16 characters and 15 digits |
+| `:61:` | the amount follows that rule; the customer reference and the bank reference have at most 16 characters; the supplementary text has at most 34 |
+| `:86:` | at most 6 lines of at most 65 characters |
+| `:90D:`, `:90C:` | the count has at most 5 digits; the amount follows the rule above |
+| `:20:`, `:21:`, `:25:`, `:86:` | only the characters of the SWIFT set: letters of both cases, digits, the space and `/ - ? : ( ) . , ' + { }` |
+
+The tags must come in the order of the manual. First come `:20:`, `:21:`, `:25:` and `:28C:`.
+Then come `:34F:`, `:13D:`, the opening balance, and the entries with their `:86:` fields.
+Last come the closing balance, the two available balances and the totals.
+
+A `:NS:` field may stand anywhere. A statement without `:25:` or without `:28C:` is a fault.
+Every fault is of kind `F_SYNTAX` and names the tag and the line.
+
+Node `@centrapay/swift-parser` cuts a value that is too long and says nothing.
+The Rust crate `mt940` refuses the whole message. This package refuses the file and names the tag.
 
 The check adds the opening balance and the entries. It compares the sum with the closing balance.
 A credit adds. A debit subtracts.
@@ -330,7 +357,7 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **There is no writer.** `ofxtools` writes OFX and GnuCash writes QIF.
-- **Fields are not checked against the SWIFT manual.** Node `@centrapay/swift-parser` fixes the width of each tag. An example is 16 characters for `:20:`. This package accepts a longer value. Real banks send one.
+- **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Bank dialects are not interpreted.** Python `mt940` ships processors for four Dutch banks. This package splits a `:86:` text and leaves the meaning to the caller.
 - **There is no transcoding.** A byte above 127 passes through into the text. Node `@fin.cx/mt940` fixes the encoding of each field.
 - **The OFX reader reads no security list and no profile.** The
@@ -363,6 +390,7 @@ Protections beyond the reference libraries:
 - **An ambiguous QIF date is a fault.** Rust `qif_parser` guesses the order. This package asks the caller, or reads the whole file.
 - **Every size has a limit.** The limits cover the input, the line, the field and the nesting of blocks. They also cover the counts of statements, entries, splits, records and fields. Python `mt940` and `quiffen` cap none of them. Python `bankstatementparser` caps the file size only. `default_limits()` holds safe values.
 - **A control byte is a fault.** A NUL byte never reaches a text field. A CR without an LF is a fault too.
+- **A value that is too long is a fault.** Node `@centrapay/swift-parser` keeps the first 16 characters of a long reference. The rest is lost. This package refuses the file and names the tag. The checks are linear and use no recursion.
 - **An interim line cannot switch off the balance check.** A forged `:13D:` or `:34F:` line does not skip it.
 - **No recursion, linear time.** A hostile file cannot overflow the stack or make the parser slow down.
 - **The OFX reader has no entity trick.** A doctype and an entity
@@ -381,6 +409,7 @@ Risks that stay:
 
 - **The text of a narrative, a payee or a memo is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.
 - **The default input limit is 16 MiB.** Lower it when you read from a form upload.
+- **`check_fields` is off by default.** Without it a field may hold any width. Turn it on for a bank that keeps the manual, and keep `max_field` low for the rest.
 - **`skip_balance_check` turns the balance protection off.** Use it only for a file you already trust.
 - **The fault names the tag and the line, not the content.** The package does not mask account numbers. Do not log a statement.
 - **The input must outlive the arrays.** The spans point into it.
