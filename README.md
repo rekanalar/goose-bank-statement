@@ -163,7 +163,9 @@ The party name comes from `Nm`, or from `BICFI`, or from the member id.
 
 An element name matches after the namespace.
 So any schema version from `.001.01` to `.001.14` parses, and any prefix works.
-An element the reader does not know is ignored.
+An element the reader does not know is ignored. The reader validates no
+document against the schema of ISO 20022. It walks by element name, as
+Python `camt053` does. The balance check catches a wrong sum.
 
 The fields of the statement come from these elements.
 
@@ -750,9 +752,7 @@ Protections beyond the reference libraries:
 Risks that stay:
 
 - **The values of a dialect are untrusted text.** A bank or a payer writes them. Escape them as you escape a remittance.
-- **The text of a remittance or a party name is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.
-
-- **The text of a narrative, a payee or a memo is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.
+- **The text of a remittance, a name or a memo is untrusted.** The package does not escape it. Escape it for HTML, SQL, a path or a command.
 - **The reference of an image is untrusted.** The package never fetches it. A caller that fetches it must check the host and the scheme. A reference that names a host inside the network of the caller reaches that host.
 - **The default input limit is 16 MiB.** Lower it when you read from a form upload.
 - **`check_fields` is off by default.** Without it a field may hold any width. Turn it on for a bank that keeps the manual, and keep `max_field` low for the rest.
