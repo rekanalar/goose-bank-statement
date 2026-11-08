@@ -70,7 +70,7 @@ struct OfxAccount {
     acct_key: const u8[:],
 }
 
-// OfxImage holds the first IMAGEDATA aggregate of a transaction. The
+// OfxImage holds one IMAGEDATA aggregate of a transaction. The
 // delay and the time to live count days. The fields has_delay and
 // has_ttl tell whether the file holds them; the date has year 0 when
 // absent.
@@ -108,7 +108,12 @@ struct OfxEntry {
     acct_to: OfxAccount,
     inv401k_source: const u8[:],
     image: OfxImage,
+    image2: OfxImage,
     image_count: i64,
+}
+
+fn no_image() -> OfxImage {
+    return OfxImage { kind: "", ref: "", ref_kind: "", delay: 0, has_delay: false, avail: no_date(), ttl: 0, has_ttl: false, check_sup: "" };
 }
 
 // no_ofx gives the OFX fields of an entry that has none.
@@ -121,7 +126,7 @@ fn no_ofx() -> OfxEntry {
         sic: 0, has_sic: false, acct_to_kind: 0,
         acct_to: OfxAccount { bank_id: "", branch_id: "", acct_id: "", acct_type: "", acct_key: "" },
         inv401k_source: "",
-        image: OfxImage { kind: "", ref: "", ref_kind: "", delay: 0, has_delay: false, avail: no_date(), ttl: 0, has_ttl: false, check_sup: "" },
+        image: no_image(), image2: no_image(),
         image_count: 0,
     };
 }

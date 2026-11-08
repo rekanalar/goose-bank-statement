@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.14.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.15.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -324,7 +324,7 @@ Every other reader gives it the empty value from `no_ofx()`.
 | `has_sic`, `sic` | `SIC` |
 | `acct_to_kind`, `acct_to` | `BANKACCTTO` (kind `B`) or `CCACCTTO` (kind `C`) |
 | `inv401k_source` | `INV401KSOURCE` |
-| `image`, `image_count` | the first `IMAGEDATA` aggregate and the count of the aggregates |
+| `image`, `image2`, `image_count` | the first and the second `IMAGEDATA` aggregate and the count of the aggregates |
 
 The rate is an exact rational. Its text stays in `rate_text`. A rate of zero is a fault.
 `CURRENCY` gives the currency of the amount. The reader then reads `TRNAMT` with the minor digits of that currency.
@@ -355,8 +355,10 @@ The reference type is one of `OPAQUE`, `URL` and `FORMURL`.
 The check side is one of `FRONTONLY`, `BACKONLY` and `FRONTANDBACK`.
 The `IMAGEDELAY` and the `DTIMAGEAVAIL` exclude each other.
 
-The reader keeps the first `IMAGEDATA` aggregate and counts the rest.
-The writer writes the one image of the member.
+The reader keeps up to two `IMAGEDATA` aggregates: the front and the back of a check.
+The writer writes as many images as `image_count` says.
+A third aggregate is a fault. Go `ofxgo` allows two at most.
+
 Python `ofxtools` marks `IMAGEDATA` as unsupported. Go `ofxgo` reads it.
 This package reads it and writes it.
 
@@ -562,7 +564,6 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **The writers write what the reader types hold.** The writer writes no investment statement.
 It writes no sign-on request and no bill pay.
-- **The OFX code keeps one image.** The reader keeps the first `IMAGEDATA` aggregate of a transaction and counts the rest. The writer writes that one image.
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.

@@ -403,8 +403,13 @@ fn write_entry(out: u8[>..]&, w: OfxForm, e: Entry, depth: i64, lim: Limits&) ->
     }
     f = opt_leaf(out, w, "MEMO", e.narrative, 255, depth + 1, lim);
     if f.kind != F_NONE { return f; }
+    if x.image_count > 2 || x.image_count < 0 { return fault(F_SYNTAX, 0, 0, "IMAGEDATA", "a transaction holds one or two images"); }
     if x.image_count > 0 {
         f = write_image(out, w, x.image, depth + 1, lim);
+        if f.kind != F_NONE { return f; }
+    }
+    if x.image_count > 1 {
+        f = write_image(out, w, x.image2, depth + 1, lim);
         if f.kind != F_NONE { return f; }
     }
     if x.rate_kind != 0 {

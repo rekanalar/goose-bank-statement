@@ -402,49 +402,18 @@ fn ofx_extras(nodes: SgmlNode[>..]&, id: i32, buf: u8[>..]&) -> OfxEntry, Fault 
     if x.inv401k_source.len > 0 && !in_list(INV401K, x.inv401k_source) {
         return x, fault(F_SYNTAX, 0, 0, "INV401KSOURCE", "the source is not one of the seven values");
     }
-    var first: i32 = -1;
     var c = first_child(nodes, id);
     while c >= 0 {
         if ieq(nodes[c].name, "IMAGEDATA") {
+            // The front and the back of a check are the most that Go
+            // ofxgo allows. A third image is a fault.
+            if x.image_count >= 2 { return x, fault(F_SYNTAX, 0, 0, "IMAGEDATA", "a transaction holds more than two images"); }
+            let im, imf = ofx_image(nodes, c, buf);
+            if imf.kind != F_NONE { return x, imf; }
+            if x.image_count == 0 { x.image = im; } else { x.image2 = im; }
             x.image_count += 1;
-            if first < 0 { first = c; }
         }
         c = sgml_next(nodes, c);
-    }
-    if first >= 0 {
-        x.image.kind = child_text(nodes, first, "IMAGETYPE", buf);
-        x.image.ref = child_text(nodes, first, "IMAGEREF", buf);
-        x.image.ref_kind = child_text(nodes, first, "IMAGEREFTYPE", buf);
-        x.image.check_sup = child_text(nodes, first, "CHECKSUP", buf);
-        let dl = child_text(nodes, first, "IMAGEDELAY", buf);
-        if dl.len > 0 {
-            let n, ok = digits(dl);
-            if !ok { return x, fault(F_SYNTAX, 0, 0, "IMAGEDELAY", "the delay is not a number of 1 to 9 digits"); }
-            x.image.delay = n;
-            x.image.has_delay = true;
-        }
-        let tl = child_text(nodes, first, "IMAGETTL", buf);
-        if tl.len > 0 {
-            let n, ok = digits(tl);
-            if !ok { return x, fault(F_SYNTAX, 0, 0, "IMAGETTL", "the time to live is not a number of 1 to 9 digits"); }
-            x.image.ttl = n;
-            x.image.has_ttl = true;
-        }
-        let da = sgml_child(nodes, first, "DTIMAGEAVAIL");
-        if da >= 0 {
-            let d, ok = ofx_date(sgml_text_of(nodes, da, buf));
-            if !ok { return x, fault(F_DATE, 0, 0, "DTIMAGEAVAIL", "the date is not OFX form"); }
-            x.image.avail = d;
-        }
-        if !in_list(IMAGE_KINDS, x.image.kind) || !in_list(IMAGE_REF_KINDS, x.image.ref_kind) {
-            return x, fault(F_SYNTAX, 0, 0, "IMAGEDATA", "the image type or reference type is not known");
-        }
-        if x.image.check_sup.len > 0 && !in_list(CHECK_SUPS, x.image.check_sup) {
-            return x, fault(F_SYNTAX, 0, 0, "CHECKSUP", "the check side is not known");
-        }
-        if x.image.has_delay && x.image.avail.year != 0 {
-            return x, fault(F_SYNTAX, 0, 0, "IMAGEDATA", "the image holds IMAGEDELAY and DTIMAGEAVAIL together");
-        }
     }
     let cu = sgml_child(nodes, id, "CURRENCY");
     let oc = sgml_child(nodes, id, "ORIGCURRENCY");
@@ -460,6 +429,45 @@ fn ofx_extras(nodes: SgmlNode[>..]&, id: i32, buf: u8[>..]&) -> OfxEntry, Fault 
         return y, f;
     }
     return x, no_fault();
+}
+
+// ofx_image reads one IMAGEDATA aggregate.
+fn ofx_image(nodes: SgmlNode[>..]&, first: i32, buf: u8[>..]&) -> OfxImage, Fault {
+    var im = no_image();
+    im.kind = child_text(nodes, first, "IMAGETYPE", buf);
+    im.ref = child_text(nodes, first, "IMAGEREF", buf);
+    im.ref_kind = child_text(nodes, first, "IMAGEREFTYPE", buf);
+    im.check_sup = child_text(nodes, first, "CHECKSUP", buf);
+    let dl = child_text(nodes, first, "IMAGEDELAY", buf);
+    if dl.len > 0 {
+        let n, ok = digits(dl);
+        if !ok { return im, fault(F_SYNTAX, 0, 0, "IMAGEDELAY", "the delay is not a number of 1 to 9 digits"); }
+        im.delay = n;
+        im.has_delay = true;
+    }
+    let tl = child_text(nodes, first, "IMAGETTL", buf);
+    if tl.len > 0 {
+        let n, ok = digits(tl);
+        if !ok { return im, fault(F_SYNTAX, 0, 0, "IMAGETTL", "the time to live is not a number of 1 to 9 digits"); }
+        im.ttl = n;
+        im.has_ttl = true;
+    }
+    let da = sgml_child(nodes, first, "DTIMAGEAVAIL");
+    if da >= 0 {
+        let d, ok = ofx_date(sgml_text_of(nodes, da, buf));
+        if !ok { return im, fault(F_DATE, 0, 0, "DTIMAGEAVAIL", "the date is not OFX form"); }
+        im.avail = d;
+    }
+    if !in_list(IMAGE_KINDS, im.kind) || !in_list(IMAGE_REF_KINDS, im.ref_kind) {
+        return im, fault(F_SYNTAX, 0, 0, "IMAGEDATA", "the image type or reference type is not known");
+    }
+    if im.check_sup.len > 0 && !in_list(CHECK_SUPS, im.check_sup) {
+        return im, fault(F_SYNTAX, 0, 0, "CHECKSUP", "the check side is not known");
+    }
+    if im.has_delay && im.avail.year != 0 {
+        return im, fault(F_SYNTAX, 0, 0, "IMAGEDATA", "the image holds IMAGEDELAY and DTIMAGEAVAIL together");
+    }
+    return im, no_fault();
 }
 
 // ofx_trnamt reads TRNAMT. A CURRENCY aggregate gives the currency of

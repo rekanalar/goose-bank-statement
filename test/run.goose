@@ -3103,6 +3103,8 @@ fn more_equal(a: bank_statement::Entry, b: bank_statement::Entry) {
     assert(x.image.kind == y.image.kind && x.image.ref == y.image.ref && x.image.ref_kind == y.image.ref_kind);
     assert(x.image.delay == y.image.delay && x.image.ttl == y.image.ttl && x.image.check_sup == y.image.check_sup);
     assert(x.image.avail.year == y.image.avail.year && x.image.avail.month == y.image.avail.month);
+    assert(x.image_count == y.image_count);
+    assert(x.image2.kind == y.image2.kind && x.image2.ref == y.image2.ref && x.image2.ref_kind == y.image2.ref_kind);
 }
 
 fn test_ofx_more() {
@@ -3121,9 +3123,10 @@ fn test_ofx_more() {
     assert(x.has_sic && x.sic == 5411 && x.inv401k_source == "MATCH");
     assert(x.acct_to_kind == 'B' && x.acct_to.bank_id == "222222222" && x.acct_to.branch_id == "12");
     assert(x.acct_to.acct_id == "5550001" && x.acct_to.acct_type == "CHECKING" && x.acct_to.acct_key == "K1");
-    // Two images: the first is kept and the count says two.
+    // Two images are kept; the second sits in image2.
     assert(x.image_count == 2 && x.image.kind == "TRANSACTION" && x.image.ref == "https://bank.example/img?a=1&b=2");
     assert(x.image.ref_kind == "URL" && x.image.delay == 3 && x.image.ttl == 30 && x.image.check_sup == "FRONTONLY");
+    assert(x.image2.kind == "STATEMENT" && x.image2.ref == "second" && x.image2.ref_kind == "OPAQUE");
     let y = ens[1].ofx;
     assert(y.acct_to_kind == 'C' && y.acct_to.acct_id == "4111000011112222");
     assert(y.image_count == 1 && y.image.avail.year == 2020 && y.image.avail.month == 2 && !y.image.has_delay);
@@ -3146,7 +3149,7 @@ fn test_ofx_more() {
         assert(g.kind == 0);
         more_equal(ens[0], e2[0]);
         more_equal(ens[1], e2[1]);
-        assert(e2[0].ofx.image_count == 1);
+        assert(e2[0].ofx.image_count == 2);
         v += 1;
     }
     // Refusals.
@@ -3194,6 +3197,8 @@ fn test_ofx_more_faults() {
     assert(ofx_kind("<BANKACCTTO><BANKID>1<ACCTID>2<ACCTTYPE>CD</BANKACCTTO><CCACCTTO><ACCTID>3</CCACCTTO>") == bank_statement::F_SYNTAX);
     assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<IMAGEDELAY>1<DTIMAGEAVAIL>20200101</IMAGEDATA>") == bank_statement::F_SYNTAX);
     assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>NET</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    // A third image is a fault.
+    assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>a<IMAGEREFTYPE>URL</IMAGEDATA><IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>b<IMAGEREFTYPE>URL</IMAGEDATA><IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>c<IMAGEREFTYPE>URL</IMAGEDATA>") == bank_statement::F_SYNTAX);
     assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<IMAGEDELAY>-1</IMAGEDATA>") == bank_statement::F_SYNTAX);
     assert(ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<CHECKSUP>BOTH</IMAGEDATA>") == bank_statement::F_SYNTAX);
     assert(ofx_kind("<SIC>5411<INV401KSOURCE>MATCH") == 0);
