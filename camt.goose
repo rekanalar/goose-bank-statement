@@ -20,6 +20,7 @@ import limits;
 import amount;
 import date;
 import mt940;
+import qif;
 import xml;
 
 // CamtOptions holds the options of the reader. The zero value is the safe
@@ -428,6 +429,10 @@ fn camt_entry(doc: xml::Doc&, id: i32, lim: Limits&, entries: Entry[>..]&, buf: 
         status: "", entry_ref: "", counter_name: "", counter_iban: "", remittance: "",
         batch_count: "", batch_msg_id: "", batch_pmt_id: "",
         batch_total: Amount { minor: 0, exp: 2, currency: "" }, has_batch_total: false,
+        units: Rational { num: 0, den: 1 }, has_units: false, units_text: "",
+        unit_price: Rational { num: 0, den: 1 }, has_unit_price: false, unit_price_text: "",
+        commission: Rational { num: 0, den: 1 }, has_commission: false, commission_text: "",
+        total: Rational { num: 0, den: 1 }, has_total: false, total_text: "",
     };
     // A reversal of a credit is RC, a reversal of a debit is RD.
     if credit { e.mark = "C"; } else { e.mark = "D"; }

@@ -637,7 +637,7 @@ fn test_hostile() {
     run_limited(":20:A\n:60F:C250101EUR0,00\n:61:250101C1,00NTRFX\n:61:250101C1,00NTRFX\n", lim, 1);
     lim = bank_statement::default_limits();
     // Nesting of blocks.
-    run_limited("{1:{{{{{{{{{{x}}}}}}}}}}}\n", lim, 1);
+    run_limited("{1:{{{{{{{{{{{{{{{{x}}}}}}}}}}}}}}}}\n", lim, 1);
     run_limited("{1:{abc}\n", lim, 2);
     run_limited("{9}\n", lim, 2);
     // A NUL byte, a bare tag and an empty file.
@@ -1566,6 +1566,461 @@ fn test_camt_real_documents() {
     assert(sts4[0].opening.amount.minor == 21199319 && sts4[0].closing.amount.minor == 21511221);
 }
 
+
+// The OFX test files below. The first two are synthetic files that
+// hold the forms a bank sends. The third is an investment statement.
+
+const OFX_V1: const u8[:] = """
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20200101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>111111111
+<ACCTID>999999
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20200101000000
+<DTEND>20200131000000
+<STMTTRN>
+<TRNTYPE>CHECK
+<DTPOSTED>20200105120000
+<TRNAMT>-100.00
+<FITID>TX1
+<CHECKNUM>101
+<NAME>ACME corp
+<MEMO>payment
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20200110000000
+<TRNAMT>1234,56
+<FITID>TX2
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>1134.56
+<DTASOF>20200131000000
+</LEDGERBAL>
+<AVAILBAL>
+<BALAMT>1134.56
+<DTASOF>20200131000000
+</AVAILBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>
+""";
+
+const OFX_V2: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?OFX OFXHEADER="200" VERSION="203" SECURITY="NONE" OLDFILEUID="NONE" NEWFILEUID="NONE"?>
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20200101120000.000[-5:EST]
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>R2
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>EUR
+<BANKACCTFROM>
+<BANKID>222
+<ACCTID>888
+<ACCTTYPE>SAVINGS
+</BANKACCTFROM>
+<BANKTRANLIST>
+<STMTTRN>
+<TRNTYPE>POS
+<DTPOSTED>20200102
+<TRNAMT>-12.34
+<FITID>A&amp;B
+<NAME>A &lt;big&gt; shop
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>1000.00
+<DTASOF>20200131
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>
+""";
+
+const OFX_INV: const u8[:] = """
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:103
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:NONE
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<INVSTMTMSGSRSV1>
+<INVSTMTTRNRS>
+<TRNUID>I1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<INVSTMTRS>
+<DTASOF>20200401
+<CURDEF>USD
+<INVACCTFROM>
+<BROKERID>broker.com
+<ACCTID>7
+</INVACCTFROM>
+<INVTRANLIST>
+<DTSTART>20200301000000
+<DTEND>20200401000000
+<BUYSTOCK>
+<INVTRAN>
+<FITID>B1
+<DTTRADE>20200310
+<MEMO>buy
+</INVTRAN>
+<SECID>
+<UNIQUEID>037833100
+<UNIQUEIDTYPE>CUSIP
+</SECID>
+<INVBUY>
+<UNITS>10.5
+<UNITPRICE>100.125
+<COMMISSION>9.95
+<TOTAL>-1051.25
+</INVBUY>
+<BUYTYPE>BUY
+</BUYSTOCK>
+<INCOME>
+<INVTRAN>
+<FITID>I2
+<DTTRADE>20200315
+</INVTRAN>
+<SECID>
+<UNIQUEID>037833100
+<UNIQUEIDTYPE>CUSIP
+</UNIQUEID>
+</SECID>
+<INCOMETYPE>DIV
+<TOTAL>25.00
+</INCOME>
+</INVTRANLIST>
+<INVPOSLIST>
+<POSSTOCK>
+<INVPOS>
+<SECID>
+<UNIQUEID>037833100
+<UNIQUEIDTYPE>CUSIP
+</UNIQUEID>
+</SECID>
+<HELDINACCT>CASH
+<POSTYPE>LONG
+<UNITS>10.5
+<UNITPRICE>105.25
+<MKTVAL>1105.25
+<DTPRICEASOF>20200401
+</INVPOS>
+</POSSTOCK>
+</INVPOSLIST>
+</INVSTMTRS>
+</INVSTMTTRNRS>
+</INVSTMTMSGSRSV1>
+</OFX>
+""";
+
+// run_ofx parses an OFX file and gives the fault.
+fn run_ofx(text: const u8[:], kind: i32) {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(text, lim, opts, sts, ens, bals, notes, buf);
+    if f.kind != kind {
+        print("FAIL ofx want ", bank_statement::kind_name(kind), " got ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n");
+    }
+    assert(f.kind == kind);
+}
+
+fn test_ofx_v1() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(OFX_V1, lim, opts, sts, ens, bals, notes, buf);
+    if f.kind != 0 { print("FAIL ofx v1 ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    // One statement with the account and the entries.
+    assert(sts.len == 1);
+    let st = sts[0];
+    assert(st.reference == "1");
+    assert(st.account == "999999");
+    assert(st.entry_count == 2 && ens.len == 2);
+    // The first entry is a debit of 100.00 dollars.
+    assert(ens[0].mark == "D" && ens[0].amount.minor == -10000 && ens[0].amount.exp == 2);
+    assert(ens[0].amount.currency == "USD");
+    assert(ens[0].type_id == "CHECK" && ens[0].entry_ref == "TX1");
+    assert(ens[0].customer_ref == "101");
+    assert(ens[0].counter_name == "ACME corp");
+    assert(ens[0].narrative == "payment");
+    assert(ens[0].value_date.year == 2020 && ens[0].value_date.month == 1 && ens[0].value_date.day == 5);
+    // The second entry has a comma as the decimal mark.
+    assert(ens[1].mark == "C" && ens[1].amount.minor == 123456 && ens[1].entry_ref == "TX2");
+    // The balances.
+    assert(bals.len == 2);
+    assert(st.closing.kind == bank_statement::BAL_CLOSING && st.closing.amount.minor == 113456);
+    assert(st.closing.code == "LEDGERBAL");
+    assert(st.available.kind == bank_statement::BAL_AVAILABLE && st.available.amount.minor == 113456);
+    assert(st.closing.date.year == 2020 && st.closing.date.month == 1 && st.closing.date.day == 31);
+    // The signon status and the account notes.
+    assert(notes.len == 3);
+    assert(notes[0].tag == "SONRS" && notes[0].value == "0/INFO");
+    assert(notes[1].tag == "BANKID" && notes[1].value == "111111111");
+    assert(notes[2].tag == "ACCTTYPE" && notes[2].value == "CHECKING");
+}
+
+fn test_ofx_v2() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(OFX_V2, lim, opts, sts, ens, bals, notes, buf);
+    if f.kind != 0 { print("FAIL ofx v2 ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(sts.len == 1 && sts[0].reference == "R2");
+    assert(sts[0].account == "888");
+    assert(ens.len == 1);
+    // The entities decode once.
+    assert(ens[0].entry_ref == "A&B");
+    assert(ens[0].counter_name == "A <big> shop");
+    assert(ens[0].mark == "D" && ens[0].amount.minor == -1234 && ens[0].amount.currency == "EUR");
+    assert(ens[0].value_date.year == 2020 && ens[0].value_date.month == 1 && ens[0].value_date.day == 2);
+    assert(bals.len == 1 && bals[0].amount.minor == 100000);
+}
+
+fn test_ofx_invest() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(OFX_INV, lim, opts, sts, ens, bals, notes, buf);
+    if f.kind != 0 { print("FAIL ofx inv ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(sts.len == 1);
+    assert(sts[0].account == "broker.com:7");
+    // The buy, the income and the position.
+    assert(ens.len == 3);
+    assert(ens[0].type_id == "BUYSTOCK" && ens[0].entry_ref == "B1");
+    assert(ens[0].mark == "D" && ens[0].amount.minor == -105125);
+    assert(ens[0].has_units && ens[0].units.num == 21 && ens[0].units.den == 2);
+    assert(ens[0].units_text == "10.5");
+    assert(ens[0].has_unit_price && ens[0].unit_price.num == 801 && ens[0].unit_price.den == 8);
+    assert(ens[0].has_commission && ens[0].commission.num == 199 && ens[0].commission.den == 20);
+    assert(ens[0].value_date.year == 2020 && ens[0].value_date.month == 3 && ens[0].value_date.day == 10);
+    // The income names its kind and holds its total.
+    assert(ens[1].type_id == "INCOME/DIV" && ens[1].mark == "C");
+    assert(ens[1].has_total && ens[1].total.num == 25 && ens[1].total.den == 1);
+    assert(ens[1].amount.minor == 2500);
+    // The position holds its units, its price and its value.
+    assert(ens[2].type_id == "POSSTOCK");
+    assert(ens[2].has_units && ens[2].units.num == 21 && ens[2].units.den == 2);
+    assert(ens[2].customer_ref == "037833100");
+    assert(ens[2].amount.minor == 110525);
+    assert(ens[2].value_date.year == 2020 && ens[2].value_date.month == 4 && ens[2].value_date.day == 1);
+}
+
+// build_ofx_date writes a file with one entry and the given date.
+fn build_ofx_date(date_text: const u8[:], out: u8[>..]&) {
+    format(out, "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\nSECURITY:NONE\nENCODING:USASCII\nCHARSET:1252\nCOMPRESSION:NONE\nOLDFILEUID:NONE\nNEWFILEUID:NONE\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD<BANKACCTFROM><BANKID>1<ACCTID>2<ACCTTYPE>CHECKING</BANKACCTFROM><BANKTRANLIST><STMTTRN><TRNTYPE>CHECK<DTPOSTED>");
+    out.append(date_text);
+    format(out, "</DTPOSTED><TRNAMT>1.00<FITID>X</STMTTRN></BANKTRANLIST><LEDGERBAL><BALAMT>1.00<DTASOF>20200101</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>");
+}
+
+// ofx_date_fault gives the fault of a file with one entry and the
+// given date.
+fn ofx_date_fault(date_text: const u8[:]) -> i32 {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::OfxOptions { .. };
+    var text: u8[>..] = [];
+    build_ofx_date(date_text, text);
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(text[..], lim, opts, sts, ens, bals, notes, buf);
+    return f.kind;
+}
+
+fn test_ofx_dates() {
+    // The date forms of the spec.
+    assert(ofx_date_fault("20200101120000") == 0);
+    assert(ofx_date_fault("2020010112") == 0);
+    assert(ofx_date_fault("20200101") == 0);
+    assert(ofx_date_fault("20200101120000.000") == 0);
+    assert(ofx_date_fault("20200101120000[-5:EST]") == 0);
+    assert(ofx_date_fault("20200101120000[-5.30:IST]") == 0);
+    assert(ofx_date_fault("20200101120000[0:GMT]") == 0);
+    // The bad dates.
+    assert(ofx_date_fault("2020010112000") == 6);
+    assert(ofx_date_fault("20201301120000") == 6);
+    assert(ofx_date_fault("20200230120000") == 6);
+    assert(ofx_date_fault("20200101120000[99:EST]") == 6);
+    // The date of the entry holds the day.
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::OfxOptions { .. };
+    var text: u8[>..] = [];
+    build_ofx_date("20200101120000[-5:EST]", text);
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(text[..], lim, opts, sts, ens, bals, notes, buf);
+    assert(f.kind == 0);
+    assert(ens.len == 1);
+    assert(ens[0].value_date.year == 2020 && ens[0].value_date.month == 1 && ens[0].value_date.day == 1);
+}
+
+fn test_ofx_faults() {
+    // A file that is no OFX file.
+    run_ofx("hello", 2);
+    // A header with a bad field.
+    run_ofx("OFXHEADER:999\nDATA:OFXSGML\nVERSION:102\n\n<OFX></OFX>", 2);
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:999\n\n<OFX></OFX>", 2);
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\nWHAT:1\n\n<OFX></OFX>", 2);
+    // A root that is not OFX.
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OTHER></OTHER>", 2);
+    // A close tag that does not match.
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><A></B></OFX>", 2);
+    // An aggregate that is not closed.
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><A>", 2);
+    // A doctype and an entity.
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<!DOCTYPE OFX><OFX></OFX>", 2);
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<!ENTITY x \"y\"><OFX></OFX>", 2);
+    // A currency that is not known.
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>XXX</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>", 4);
+    // A bad amount.
+    run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD<BANKTRANLIST><STMTTRN><TRNTYPE>CHECK<TRNAMT>1e5</STMTTRN></BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>", 4);
+    // A file above the input limit.
+    var lim = bank_statement::default_limits();
+    lim.max_input = 20;
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let opts = bank_statement::OfxOptions { .. };
+    let f = bank_statement::parse_ofx(OFX_V1, lim, opts, sts, ens, bals, notes, buf);
+    assert(f.kind == 1);
+}
+
+fn test_ofx_forms() {
+    // The header of one line, with a space after the colon and
+    // without the blank line.
+    let one = "OFXHEADER:100 DATA:OFXSGML VERSION:102 SECURITY:NONE ENCODING:USASCII CHARSET:1252 COMPRESSION:NONE OLDFILEUID:NONE NEWFILEUID:NONE<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>";
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::OfxOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx(one, lim, opts, sts, ens, bals, notes, buf);
+    if f.kind != 0 { print("FAIL ofx one line ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(sts.len == 1);
+    // A comment, a CDATA section and a private tag do not disturb the
+    // read.
+    let forms = "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><!-- a comment --><INTU.BID>private</INTU.BID><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD<BANKTRANLIST><STMTTRN><TRNTYPE>CHECK<TRNAMT>1.00<FITID>X</STMTTRN></BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>";
+    var sts2: bank_statement::Statement[>..] = [];
+    var ens2: bank_statement::Entry[>..] = [];
+    var bals2: bank_statement::Balance[>..] = [];
+    var notes2: bank_statement::Note[>..] = [];
+    var buf2: u8[>..] = [];
+    let g = bank_statement::parse_ofx(forms, lim, opts, sts2, ens2, bals2, notes2, buf2);
+    if g.kind != 0 { print("FAIL ofx forms ", bank_statement::kind_name(g.kind), " ", g.tag, " ", g.detail, "\n"); }
+    assert(g.kind == 0);
+    assert(sts2.len == 1 && ens2.len == 1);
+    // A tag that is not in the leaf list holds its text and closes
+    // with its own close tag.
+    let custom = "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><MYTAG>text</MYTAG><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>";
+    var sts3: bank_statement::Statement[>..] = [];
+    var ens3: bank_statement::Entry[>..] = [];
+    var bals3: bank_statement::Balance[>..] = [];
+    var notes3: bank_statement::Note[>..] = [];
+    var buf3: u8[>..] = [];
+    let h = bank_statement::parse_ofx(custom, lim, opts, sts3, ens3, bals3, notes3, buf3);
+    if h.kind != 0 { print("FAIL ofx custom ", bank_statement::kind_name(h.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(h.kind == 0);
+    assert(sts3.len == 1);
+    // An unknown entity stays as text. It never expands.
+    let ent = "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><A>&xxe;</A></OFX>";
+    var sts4: bank_statement::Statement[>..] = [];
+    var ens4: bank_statement::Entry[>..] = [];
+    var bals4: bank_statement::Balance[>..] = [];
+    var notes4: bank_statement::Note[>..] = [];
+    var buf4: u8[>..] = [];
+    let k = bank_statement::parse_ofx(ent, lim, opts, sts4, ens4, bals4, notes4, buf4);
+    assert(k.kind == 0);
+}
+
 fn main() {
     test_hostile();
     test_hostile_qif();
@@ -1598,6 +2053,12 @@ fn main() {
     test_camt_faults();
     test_camt_real_documents();
     test_camt_two_statements();
+    test_ofx_v1();
+    test_ofx_v2();
+    test_ofx_invest();
+    test_ofx_dates();
+    test_ofx_faults();
+    test_ofx_forms();
     test_amount();
     test_amount_faults();
     test_exponent();

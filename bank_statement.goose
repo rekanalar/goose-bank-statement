@@ -1,7 +1,8 @@
 // bank_statement - bank statement files for Goose.
 //
-// The package reads SWIFT MT940 and MT942 statements, QIF files and the
-// ISO 20022 documents camt.052, camt.053 and camt.054.
+// The package reads SWIFT MT940 and MT942 statements, QIF files, the
+// ISO 20022 documents camt.052, camt.053 and camt.054, and OFX 1.x and
+// 2.x files.
 // Money is an integer count of minor units. Every parse is one linear
 // pass with no recursion and bounded sizes.
 //
@@ -19,4 +20,6 @@ import currency;
 import date;
 import mt940;
 import qif;
+import sgml;
+import ofx;
 import camt;

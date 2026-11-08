@@ -17,6 +17,7 @@ import limits;
 import amount;
 import date;
 import text;
+import qif;
 
 // The kinds of a balance.
 const BAL_OPENING: i32 = 1;
@@ -60,6 +61,20 @@ struct Entry {
     batch_pmt_id: const u8[:],
     batch_total: Amount,
     has_batch_total: bool,
+    // The investment fields of an OFX entry. The rationals are exact;
+    // their texts stay as given.
+    units: Rational,
+    has_units: bool,
+    units_text: const u8[:],
+    unit_price: Rational,
+    has_unit_price: bool,
+    unit_price_text: const u8[:],
+    commission: Rational,
+    has_commission: bool,
+    commission_text: const u8[:],
+    total: Rational,
+    has_total: bool,
+    total_text: const u8[:],
 }
 
 // Note holds a statement level text: a :NS: field or a :86: that does
@@ -215,6 +230,10 @@ fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64) -> Entry, Fau
         status: "", entry_ref: "", counter_name: "", counter_iban: "", remittance: "",
         batch_count: "", batch_msg_id: "", batch_pmt_id: "",
         batch_total: Amount { minor: 0, exp: 2, currency: "" }, has_batch_total: false,
+        units: Rational { num: 0, den: 1 }, has_units: false, units_text: "",
+        unit_price: Rational { num: 0, den: 1 }, has_unit_price: false, unit_price_text: "",
+        commission: Rational { num: 0, den: 1 }, has_commission: false, commission_text: "",
+        total: Rational { num: 0, den: 1 }, has_total: false, total_text: "",
     };
     let head, rest = first_line(value);
     let tag: const u8[:] = "61";

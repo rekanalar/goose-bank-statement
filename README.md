@@ -5,6 +5,7 @@
 Bank statement files for the [Goose](https://github.com/aardappel/goose) programming language.
 The package reads SWIFT MT940 statements, SWIFT MT942 interim reports and QIF files.
 It also reads the ISO 20022 XML documents camt.052, camt.053 and camt.054.
+It reads the OFX 1.x and OFX 2.x files of the banks of North America.
 Pure Goose, no C. The package uses the standard library and the package `goose-xml`.
 
 Money is an integer count of minor units with the exponent of its currency. The package uses no float.
@@ -15,7 +16,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.3.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.4.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -34,6 +35,7 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `split_narrative(raw, lim, out)` | splits a `:86:` text into `?NN` subfields or `/KEY/value/` pairs; gives `kind, Fault` |
 | `parse_qif(input, lim, opts, records, splits, extra)` | reads a QIF file; gives a `Fault` |
 | `parse_camt(input, lim, opts, statements, entries, balances, buf)` | reads a camt.052, camt.053 or camt.054 document; gives a `Fault` |
+| `parse_ofx(input, lim, opts, statements, entries, balances, notes, buf)` | reads an OFX 1.x or OFX 2.x file; gives a `Fault` |
 | `split_category(l)` | splits an `L` value into name, sub-category, class and transfer account |
 | `parse_amount(text, exp, decimal, group)` | reads an amount into minor units; gives `Amount, Fault` |
 | `parse_number(text, decimal, group)` | reads a decimal into a mantissa and a scale; the scale drops the zeros at the end of the decimal part; gives `i64, i32, Fault` |
@@ -162,6 +164,101 @@ let f = bank_statement::parse_camt(text, lim, opts, sts, ens, bals, buf);
 if f.kind != 0 { print(bank_statement::kind_name(f.kind), " in ", f.tag); }
 ```
 
+### OFX
+
+The reader takes the OFX files of the banks of North America.
+It reads the header, the tag tree and the statement message sets.
+The OFX 1.x body is SGML: a leaf tag holds its text and often has no
+closing tag. The reader holds the leaf list of the OFX 1.0.3 DTD for
+this, as the Go reference does.
+
+The header of version 1 is the nine `KEY:VALUE` lines.
+The reader skips blank lines and accepts a space after the colon.
+It accepts all fields on one line and a missing blank line after the
+header. It accepts LF, CRLF and CR line ends.
+The header of version 2 is the `<?xml?>` declaration and the `<?OFX?>`
+instruction.
+
+| Header field | Values |
+|---|---|
+| `OFXHEADER` | 100 for version 1, 200 for version 2 |
+| `DATA` | `OFXSGML` |
+| `VERSION` | 102, 103, 151, 160 for version 1; 200 to 220 for version 2 |
+| `SECURITY` | `NONE` or `TYPE1` |
+| `ENCODING` | `USASCII`, `UNICODE` or `UTF-8` |
+| `CHARSET` | `NONE`, `1252` or `ISO-8859-1` |
+| `COMPRESSION` | `NONE` |
+
+A bank statement gives one statement. A credit card statement gives one
+statement. An investment statement gives one statement.
+
+| Field | Element |
+|---|---|
+| `reference` | `TRNUID` |
+| `account` | `BANKACCTFROM/ACCTID` or `CCACCTFROM/ACCTID` |
+| `account` | `INVACCTFROM/BROKERID:ACCTID` for an investment statement |
+| `amount` | `TRNAMT` with the exponent of `CURDEF` |
+| `mark` | the sign of `TRNAMT`: a negative amount is a debit |
+| `value_date` | `DTPOSTED` |
+| `entry_date` | `DTAVAIL` |
+| `entry_ref` | `FITID` |
+| `bank_ref` | `SRVRTID` |
+| `customer_ref` | `CHECKNUM` |
+| `supplementary` | `REFNUM` |
+| `type_id` | `TRNTYPE` |
+| `counter_name` | `NAME` or `PAYEE/NAME` |
+| `narrative` | `MEMO` |
+| `closing` | `LEDGERBAL` |
+| `available` | `AVAILBAL` |
+
+The signon status comes back as a note with the tag `SONRS`.
+The value holds the code, the severity and the message.
+The bank id and the account type come back as notes.
+A status of severity `ERROR` does not stop the read of the statements.
+
+An investment transaction gives an entry. The type text names the kind
+of the transaction, such as `BUYSTOCK` or `INCOME/DIV`.
+The money fields are exact rationals, and their texts stay as given.
+
+| Field | Element |
+|---|---|
+| `units` | `UNITS` |
+| `unit_price` | `UNITPRICE` |
+| `commission` | `COMMISSION` |
+| `total` | `TOTAL` |
+| `amount` | `TOTAL` when it fits the currency of the statement |
+| `entry_ref` | `INVTRAN/FITID` |
+| `value_date` | `INVTRAN/DTTRADE` |
+| `entry_date` | `INVTRAN/DTSETTLE` |
+
+A position gives an entry. The type text names the kind, such as
+`POSSTOCK`. The units and the unit price come from the position, and
+the market value is the amount.
+
+The date of the OFX spec is `YYYYMMDD[HHMM[SS[.XXX]]][[+H[.MM][:TZ]]]`.
+The reader reads the minutes of a dotted offset: `[-5.30]` is 5 hours
+30 minutes. The Go reference reads hundredths of an hour there.
+The reader follows the Python reference and the real bank files.
+A date with no zone means GMT.
+
+The amount of a statement is exact. A comma is a decimal separator only
+when the text holds no dot. An exponent, a NaN and two marks are faults.
+
+`OfxOptions` holds one flag. `skip_pending` is false by default.
+The pending list of a statement gives entries like the booked list.
+
+```goose
+var sts: bank_statement::Statement[>..] = [];
+var ens: bank_statement::Entry[>..] = [];
+var bals: bank_statement::Balance[>..] = [];
+var notes: bank_statement::Note[>..] = [];
+var buf: u8[>..] = [];
+let lim = bank_statement::default_limits();
+let opts = bank_statement::OfxOptions { .. };
+let f = bank_statement::parse_ofx(text, lim, opts, sts, ens, bals, notes, buf);
+if f.kind != 0 { print(bank_statement::kind_name(f.kind), " in ", f.tag); }
+```
+
 ### QIF
 
 A line that starts with `!` opens a section. The reader knows these headers:
@@ -232,12 +329,19 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The camt reader reads the statements, not the whole message.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message.
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
-- **OFX 1.x and 2.x are not read.** Python `ofxtools`, Go `ofxgo` and Node `ofx-js` read them.
 - **There is no writer.** `ofxtools` writes OFX and GnuCash writes QIF.
 - **Fields are not checked against the SWIFT manual.** Node `@centrapay/swift-parser` fixes the width of each tag. An example is 16 characters for `:20:`. This package accepts a longer value. Real banks send one.
 - **Bank dialects are not interpreted.** Python `mt940` ships processors for four Dutch banks. This package splits a `:86:` text and leaves the meaning to the caller.
 - **There is no transcoding.** A byte above 127 passes through into the text. Node `@fin.cx/mt940` fixes the encoding of each field.
+- **The OFX reader reads no security list and no profile.** The
+  securities of an investment statement come as positions only.
+  Python `ofxtools` and Go `ofxgo` read the whole security list.
+- **The OFX reader has no writer and no network.** Python `ofxtools` and
+  Go `ofxgo` speak OFX over HTTPS. The standard library of Goose has no
+  HTTP client.
 - **The QIF sections beyond the transactions keep no typed record.** They hold lines as `QifField` values. GnuCash gives each one a record of its own type.
+- **The nesting limit is 16.** It was 8 before. The OFX files of the
+  banks nest deeper than 8 levels.
 - **A long tail of zeros is a fault.** A decimal part with 19 or more zeros at the end faults.
 - **After a fault the arrays hold partial results.** Do not use them.
 
@@ -261,6 +365,14 @@ Protections beyond the reference libraries:
 - **A control byte is a fault.** A NUL byte never reaches a text field. A CR without an LF is a fault too.
 - **An interim line cannot switch off the balance check.** A forged `:13D:` or `:34F:` line does not skip it.
 - **No recursion, linear time.** A hostile file cannot overflow the stack or make the parser slow down.
+- **The OFX reader has no entity trick.** A doctype and an entity
+  declaration are faults. The five named entities and the numeric
+  references decode once. An unknown entity stays as text. Python
+  `ofxtools`, Go `ofxgo` and Node `ofx-js` have no entity machinery,
+  so none of them expands an entity either.
+- **The OFX reader bounds the nesting and the count of the tags.** No
+  reference library does. A deep SGML body crashes `ofx-js` and
+  `ofxtools` with a stack overflow.
 - **No entity of a document expands.** The package `goose-xml` skips a doctype. It never expands an entity. An unknown entity is a fault. It also refuses a picture deeper than 256 levels. Java `prowide-iso20022` and Python `camt053` use a parser that reads a doctype with an internal subset.
 
 Risks that stay:
