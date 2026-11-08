@@ -123,19 +123,21 @@ fn test_currency_table() {
 
 const STMT1: const u8[:] = "{1:F01BANKBEBBAXXX0000000000}{2:O9401234250101BANKDEFFAXXX00000000002501011234N}{4:\n:20:STMT001\n:25:DE89370400440532013000\n:28C:00001/001\n:60F:C250101EUR1000,00\n:61:2501020102C500,00NTRFNONREF//BANKREF1\nSUPPLEMENT\n:86:020?00BANK TRANSFER?20PURPOSE\n?21LINE 2?32JOHN DOE\n:61:250103D200,50NCHKCHK123\n:62F:C250103EUR1299,50\n:64:C250103EUR1299,50\n-}";
 
-// parse_kind parses text and gives only the fault. The arrays are local.
-fn parse_kind(text: const u8[:], lim: bank_statement::Limits&, skip: bool) -> bank_statement::Fault {
+// parse_kind parses text and gives the fault. The buffer holds the
+// decoded text when the option names a charset.
+fn parse_kind(text: const u8[:], lim: bank_statement::Limits&, skip: bool, buf: u8[>..]&) -> bank_statement::Fault {
     let opts = bank_statement::Mt940Options { skip_balance_check: skip, check_fields: false, style: 0 };
     var sts: bank_statement::Statement[>..] = [];
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
-    return bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    return bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, buf);
 }
 
 fn run_mt940(text: const u8[:], skip: bool, kind: i32, tag: const u8[:]) {
     let lim = bank_statement::default_limits();
-    let f = parse_kind(text, lim, skip);
+    var rbuf: u8[>..] = [];
+    let f = parse_kind(text, lim, skip, rbuf);
     if f.kind != kind || f.tag != tag {
         print("FAIL mt940 want ", bank_statement::kind_name(kind), " got ", bank_statement::kind_name(f.kind), " line ", f.line, " tag ", f.tag, " ", f.detail);
     }
@@ -150,7 +152,8 @@ fn test_mt940_basic() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
-    let f = bank_statement::parse_mt940(STMT1, lim, opts, sts, ens, bals, notes);
+    var xbuf2: u8[>..] = [];
+    let f = bank_statement::parse_mt940(STMT1, lim, opts, sts, ens, bals, notes, xbuf2);
     if f.kind != 0 { print("FAIL ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(sts.len == 1);
@@ -217,7 +220,8 @@ fn test_mt940_multi() {
     var notes: bank_statement::Note[>..] = [];
     // Three statements, mixed line ends, intermediate balances, no :28C:.
     let text = ":20:ONE\r\n:60M:C250101EUR10,00\r\n:62M:C250101EUR10,00\r\n-\r\n:20:TWO\n:60M:C250101EUR10,00\n:61:250101C1,00NTRFX\n:62F:C250101EUR11,00\n-\n:20:THREE\n:60F:C250101JPY5\n:61:250101D5NTRFX\n:62F:C250101JPY0\n";
-    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    var xbuf3: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf3);
     if f.kind != 0 { print("FAIL ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(sts.len == 3);
@@ -240,7 +244,8 @@ fn test_currency_rules() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
-    let f = bank_statement::parse_mt940(":20:I\n:34F:JPY0\n:61:250101C150NTRFX\n", lim, opts, sts, ens, bals, notes);
+    var xbuf4: u8[>..] = [];
+    let f = bank_statement::parse_mt940(":20:I\n:34F:JPY0\n:61:250101C150NTRFX\n", lim, opts, sts, ens, bals, notes, xbuf4);
     assert(f.kind == 0);
     assert(ens[0].amount.minor == 150 && ens[0].amount.exp == 0 && ens[0].amount.currency == "JPY");
     assert(!sts[0].balance_checked);
@@ -265,13 +270,15 @@ fn test_balance_checked() {
     let text = ":20:A\n:60F:C250101EUR0,00\n:62F:C250101EUR0,00\n";
     let on = bank_statement::Mt940Options { .. };
     let off = bank_statement::Mt940Options { skip_balance_check: true, check_fields: false, style: 0 };
-    let f = bank_statement::parse_mt940(text, lim, on, sts, ens, bals, notes);
+    var xbuf5: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text, lim, on, sts, ens, bals, notes, xbuf5);
     assert(f.kind == 0 && sts[0].balance_checked);
     var sts2: bank_statement::Statement[>..] = [];
     var ens2: bank_statement::Entry[>..] = [];
     var bals2: bank_statement::Balance[>..] = [];
     var notes2: bank_statement::Note[>..] = [];
-    let g = bank_statement::parse_mt940(text, lim, off, sts2, ens2, bals2, notes2);
+    var xbuf6: u8[>..] = [];
+    let g = bank_statement::parse_mt940(text, lim, off, sts2, ens2, bals2, notes2, xbuf6);
     assert(g.kind == 0 && !sts2[0].balance_checked);
 }
 
@@ -289,7 +296,8 @@ fn test_mt942() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     let text = ":20:INTERIM\n:25:ACC\n:28C:5/1\n:34F:EUR0,\n:34F:EURD100,\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:61:250102D20,00NTRFREF2\n:90D:1EUR20,00\n:90C:1EUR500,00\n";
-    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    var xbuf7: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf7);
     if f.kind != 0 { print("FAIL ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     let st = sts[0];
@@ -342,7 +350,8 @@ fn run_qif(text: const u8[:], order: i32, kind: i32) {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext);
+    var xbuf8: u8[>..] = [];
+    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext, xbuf8);
     if f.kind != kind { print("FAIL qif want ", bank_statement::kind_name(kind), " got ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail, "\n"); }
     assert(f.kind == kind);
 }
@@ -353,7 +362,8 @@ fn test_qif_basic() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    let f = bank_statement::parse_qif(QIF1, lim, opts, recs, spl, ext);
+    var xbuf9: u8[>..] = [];
+    let f = bank_statement::parse_qif(QIF1, lim, opts, recs, spl, ext, xbuf9);
     if f.kind != 0 { print("FAIL ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(recs.len == 3);
@@ -398,7 +408,8 @@ fn test_qif_sections() {
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
     let text = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNSalary\nI\n^\n!Type:Invst\nD31.12.2025\nNBuy\nYAcme\nI10,5\nQ100\nO9,99\nT1.050,00\n$1.050,00\n^\n!Type:Prices\n\"ACME\",10.5,\"31.12.2025\"\n^\n";
-    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext);
+    var xbuf10: u8[>..] = [];
+    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext, xbuf10);
     if f.kind != 0 { print("FAIL ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(recs.len == 4);
@@ -439,7 +450,8 @@ fn test_qif_dates() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    let f = bank_statement::parse_qif("!Type:Bank\nD1/2/99\n^\nD1/2/24\n^\nD20250102\n^\n", lim, opts, recs, spl, ext);
+    var xbuf11: u8[>..] = [];
+    let f = bank_statement::parse_qif("!Type:Bank\nD1/2/99\n^\nD1/2/24\n^\nD20250102\n^\n", lim, opts, recs, spl, ext, xbuf11);
     assert(f.kind == 0);
     assert(recs[0].date.year == 1999 && recs[1].date.year == 2024);
 }
@@ -457,7 +469,8 @@ fn test_qif_faults() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    let f = bank_statement::parse_qif("!Type:Purple\n", lim, opts, recs, spl, ext);
+    var xbuf12: u8[>..] = [];
+    let f = bank_statement::parse_qif("!Type:Purple\n", lim, opts, recs, spl, ext, xbuf12);
     assert(f.kind == 3 && f.tag == "!Type:Purple");
 }
 
@@ -471,7 +484,8 @@ fn test_qif_headers() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    var f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext);
+    var xbuf13: u8[>..] = [];
+    var f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext, xbuf13);
     if f.kind != 0 { print("FAIL headers ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(recs.len == 4);
@@ -484,7 +498,8 @@ fn test_qif_headers() {
     var recs2: bank_statement::QifRecord[>..] = [];
     var spl2: bank_statement::QifSplit[>..] = [];
     var ext2: bank_statement::QifField[>..] = [];
-    f = bank_statement::parse_qif(text, lim, opts, recs2, spl2, ext2);
+    var xbuf14: u8[>..] = [];
+    f = bank_statement::parse_qif(text, lim, opts, recs2, spl2, ext2, xbuf14);
     assert(f.kind == 0);
     assert(recs2[0].section == bank_statement::Q_BUDGET && recs2[0].field_count == 2);
     assert(recs2[1].section == bank_statement::Q_TAG && recs2[1].field_count == 2);
@@ -494,7 +509,8 @@ fn test_qif_headers() {
     var recs3: bank_statement::QifRecord[>..] = [];
     var spl3: bank_statement::QifSplit[>..] = [];
     var ext3: bank_statement::QifField[>..] = [];
-    f = bank_statement::parse_qif("!type bank\nT1\n^\n!TYPE:BANK\nT2\n^\n!Type:OthA\nT3\n^\n!type oth a\nT4\n^\n", lim, opts, recs3, spl3, ext3);
+    var xbuf15: u8[>..] = [];
+    f = bank_statement::parse_qif("!type bank\nT1\n^\n!TYPE:BANK\nT2\n^\n!Type:OthA\nT3\n^\n!type oth a\nT4\n^\n", lim, opts, recs3, spl3, ext3, xbuf15);
     assert(f.kind == 0);
     assert(recs3.len == 4);
     assert(recs3[0].section == bank_statement::Q_BANK && recs3[1].section == bank_statement::Q_BANK);
@@ -510,7 +526,8 @@ fn test_qif_u_amount() {
     var ext: bank_statement::QifField[>..] = [];
     // U wins over T in both orders. The losing value stays reachable.
     let text = "!Type:Bank\nT100.00\nU200.00\n^\nU300.00\nT400.00\n^\n";
-    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext);
+    var xbuf16: u8[>..] = [];
+    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext, xbuf16);
     assert(f.kind == 0);
     assert(recs.len == 2);
     assert(recs[0].has_amount && recs[0].amount.minor == 20000 && recs[0].amount_code == 'U');
@@ -521,7 +538,8 @@ fn test_qif_u_amount() {
     var recs2: bank_statement::QifRecord[>..] = [];
     var spl2: bank_statement::QifSplit[>..] = [];
     var ext2: bank_statement::QifField[>..] = [];
-    let f2 = bank_statement::parse_qif("!Type:Bank\nT100.00\n^\n", lim, opts, recs2, spl2, ext2);
+    var xbuf17: u8[>..] = [];
+    let f2 = bank_statement::parse_qif("!Type:Bank\nT100.00\n^\n", lim, opts, recs2, spl2, ext2, xbuf17);
     assert(f2.kind == 0);
     assert(recs2[0].amount_code == 'T' && !recs2[0].has_alt_amount);
     // A value that starts with ... sets no amount and stays a field.
@@ -529,7 +547,8 @@ fn test_qif_u_amount() {
     var spl3: bank_statement::QifSplit[>..] = [];
     var ext3: bank_statement::QifField[>..] = [];
     let text3 = "!Type:Bank\nT...\n^\nU...\n^\nSOne\n$...\nSTwo\n$5\n^\n";
-    let f3 = bank_statement::parse_qif(text3, lim, opts, recs3, spl3, ext3);
+    var xbuf18: u8[>..] = [];
+    let f3 = bank_statement::parse_qif(text3, lim, opts, recs3, spl3, ext3, xbuf18);
     assert(f3.kind == 0);
     assert(recs3.len == 3);
     assert(!recs3[0].has_amount && recs3[0].field_count == 1 && ext3[0].code == 'T');
@@ -547,7 +566,8 @@ fn test_qif_ratio() {
     var ext: bank_statement::QifField[>..] = [];
     // 10 1/2, 1/2, a negative commission and a percent with a tail.
     let text = "!Type:Invst\nI10 1/2\nQ1/4\nO-9.99\n^\n!Type:Bank\nSA\n%12.5 %\nSB\n%1/3\n^\nFphone\n^\n";
-    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext);
+    var xbuf19: u8[>..] = [];
+    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext, xbuf19);
     if f.kind != 0 { print("FAIL ratio ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(recs[0].has_price && recs[0].price.num == 21 && recs[0].price.den == 2 && recs[0].price_text == "10 1/2");
@@ -561,10 +581,12 @@ fn test_qif_ratio() {
     var recs2: bank_statement::QifRecord[>..] = [];
     var spl2: bank_statement::QifSplit[>..] = [];
     var ext2: bank_statement::QifField[>..] = [];
-    let f2 = bank_statement::parse_qif("!Type:Invst\nIabc\n^\n", lim, opts, recs2, spl2, ext2);
+    var xbuf20: u8[>..] = [];
+    let f2 = bank_statement::parse_qif("!Type:Invst\nIabc\n^\n", lim, opts, recs2, spl2, ext2, xbuf20);
     assert(f2.kind == 4 && f2.tag == "I");
     // A fraction of zero is a fault.
-    let f3 = bank_statement::parse_qif("!Type:Invst\nI1/0\n^\n", lim, opts, recs2, spl2, ext2);
+    var xbuf21: u8[>..] = [];
+    let f3 = bank_statement::parse_qif("!Type:Invst\nI1/0\n^\n", lim, opts, recs2, spl2, ext2, xbuf21);
     assert(f3.kind == 4);
 }
 
@@ -577,7 +599,8 @@ fn test_mt940_64_65() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     let text = ":20:A\n:60F:C250101EUR100,00\n:61:250102C50,00NTRFREF\n:62F:C250102EUR150,00\n:64:C250102EUR150,00\n:65:C250331EUR200,00\n:65:C250401EUR250,00\n";
-    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    var xbuf22: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf22);
     if f.kind != 0 { print("FAIL 64/65 ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     // Both balances sit in the balance range and as typed fields.
@@ -595,7 +618,8 @@ fn test_mt940_64_65() {
     var ens2: bank_statement::Entry[>..] = [];
     var bals2: bank_statement::Balance[>..] = [];
     var notes2: bank_statement::Note[>..] = [];
-    let g = bank_statement::parse_mt940(":20:A\n:60F:C250101EUR0,00\n:62F:C250101EUR0,00\n", lim, opts, sts2, ens2, bals2, notes2);
+    var xbuf23: u8[>..] = [];
+    let g = bank_statement::parse_mt940(":20:A\n:60F:C250101EUR0,00\n:62F:C250101EUR0,00\n", lim, opts, sts2, ens2, bals2, notes2, xbuf23);
     assert(g.kind == 0 && sts2[0].available.kind == 0 && sts2[0].forward.kind == 0);
     // A second :64: is a fault. A second :65: replaces the value.
     run_mt940(":20:A\n:64:C250101EUR1,00\n:64:C250102EUR2,00\n", false, 2, "64");
@@ -604,12 +628,14 @@ fn test_mt940_64_65() {
     var bals3: bank_statement::Balance[>..] = [];
     var notes3: bank_statement::Note[>..] = [];
     let off = bank_statement::Mt940Options { skip_balance_check: true, check_fields: false, style: 0 };
-    let h = bank_statement::parse_mt940(":20:A\n:65:C250101EUR1,00\n:65:C250102EUR2,00\n", lim, off, sts3, ens3, bals3, notes3);
+    var xbuf24: u8[>..] = [];
+    let h = bank_statement::parse_mt940(":20:A\n:65:C250101EUR1,00\n:65:C250102EUR2,00\n", lim, off, sts3, ens3, bals3, notes3, xbuf24);
     assert(h.kind == 0 && sts3[0].forward.amount.minor == 200);
 }
 
 fn run_limited(text: const u8[:], lim: bank_statement::Limits&, kind: i32) {
-    let f = parse_kind(text, lim, true);
+    var rbuf: u8[>..] = [];
+    let f = parse_kind(text, lim, true, rbuf);
     if f.kind != kind { print("FAIL limit want ", bank_statement::kind_name(kind), " got ", bank_statement::kind_name(f.kind), " ", f.detail); }
     assert(f.kind == kind);
 }
@@ -665,14 +691,16 @@ fn test_hostile_qif() {
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
     lim.max_records = 2;
-    let f = bank_statement::parse_qif("!Type:Bank\nT1\n^\nT2\n^\nT3\n^\n", lim, opts, recs, spl, ext);
+    var xbuf25: u8[>..] = [];
+    let f = bank_statement::parse_qif("!Type:Bank\nT1\n^\nT2\n^\nT3\n^\n", lim, opts, recs, spl, ext, xbuf25);
     assert(f.kind == 1);
     lim = bank_statement::default_limits();
     lim.max_splits = 1;
     var recs2: bank_statement::QifRecord[>..] = [];
     var spl2: bank_statement::QifSplit[>..] = [];
     var ext2: bank_statement::QifField[>..] = [];
-    let g = bank_statement::parse_qif("!Type:Bank\nSa\n$1\nSb\n$2\n^\n", lim, opts, recs2, spl2, ext2);
+    var xbuf26: u8[>..] = [];
+    let g = bank_statement::parse_qif("!Type:Bank\nSa\n$1\nSb\n$2\n^\n", lim, opts, recs2, spl2, ext2, xbuf26);
     assert(g.kind == 1);
     run_qif("!Type:Bank\nT\0\n", 1, 2);
     run_qif("!Type:Bank\nT99999999999999999999999999999\n^\n", 1, 5);
@@ -695,7 +723,8 @@ fn time_parse(n: i64) -> i64 {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     let t0 = clock_ns();
-    let f = bank_statement::parse_mt940(text[..], lim, opts, sts, ens, bals, notes);
+    var xbuf27: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text[..], lim, opts, sts, ens, bals, notes, xbuf27);
     let t1 = clock_ns();
     assert(f.kind == 0);
     assert(ens.len == n);
@@ -2037,19 +2066,28 @@ fn test_ofx_forms() {
     assert(k.kind == 0);
 }
 
+// fk parses text with the field rules on and gives the kind of the
+// fault only.
+fn fk(text: const u8[:]) -> i32 {
+    var rbuf: u8[>..] = [];
+    return fields_kind(text, rbuf).kind;
+}
+
 // fields_kind parses text with the field rules on and gives the fault.
-fn fields_kind(text: const u8[:]) -> bank_statement::Fault {
+// The buffer holds the decoded text when the option names a charset.
+fn fields_kind(text: const u8[:], buf: u8[>..]&) -> bank_statement::Fault {
     let lim = bank_statement::default_limits();
     let opts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true, style: 0 };
     var sts: bank_statement::Statement[>..] = [];
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
-    return bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    return bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, buf);
 }
 
 fn expect_fields(text: const u8[:], kind: i32, tag: const u8[:]) {
-    let f = fields_kind(text);
+    var rbuf: u8[>..] = [];
+    let f = fields_kind(text, rbuf);
     if f.kind != kind || f.tag != tag {
         print("FAIL fields want ", bank_statement::kind_name(kind), " ", tag, " got ", bank_statement::kind_name(f.kind), " line ", f.line, " tag ", f.tag, " ", f.detail, "\n");
     }
@@ -2073,18 +2111,19 @@ fn stmt_with(ref20: const u8[:], acct: const u8[:], out: u8[>..]&) {
 fn test_swift_fields() {
     // A file that keeps the manual parses with the rules on and gives
     // the same values as with the rules off.
-    assert(fields_kind(STMT1).kind == 0);
+    assert(fk(STMT1) == 0);
     // The widths: 16 passes, 17 fails.
     var a: u8[>..] = [];
     fill('A', 16, a);
     var b: u8[>..] = [];
     stmt_with(a, "ACC", b);
-    assert(fields_kind(b).kind == 0);
+    assert(fk(b) == 0);
     var c: u8[>..] = [];
     fill('A', 17, c);
     var d: u8[>..] = [];
     stmt_with(c, "ACC", d);
-    let f = fields_kind(d);
+    var rbuf2: u8[>..] = [];
+    let f = fields_kind(d, rbuf2);
     assert(f.kind == 2 && f.tag == "20");
     // The same file parses with the rules off.
     run_mt940(d, false, 0, "");
@@ -2093,7 +2132,7 @@ fn test_swift_fields() {
     fill('9', 35, e);
     var g: u8[>..] = [];
     stmt_with("R", e, g);
-    assert(fields_kind(g).kind == 0);
+    assert(fk(g) == 0);
     var h: u8[>..] = [];
     fill('9', 36, h);
     var k: u8[>..] = [];
@@ -2126,7 +2165,7 @@ fn test_swift_61() {
     var ok: u8[>..] = [];
     format(ok, head); format(ok, ":61:250102C1,00NTRF1234567890123456//1234567890123456\n");
     fill('S', 34, ok); format(ok, "\n"); format(ok, tail);
-    assert(fields_kind(ok).kind == 0);
+    assert(fk(ok) == 0);
     var long_cust: u8[>..] = [];
     format(long_cust, head); format(long_cust, ":61:250102C1,00NTRF12345678901234567\n"); format(long_cust, tail);
     expect_fields(long_cust, 2, "61");
@@ -2148,7 +2187,7 @@ fn test_swift_86() {
     var i = 0;
     while i < 6 { fill('T', 65, six); format(six, "\n"); i += 1; }
     format(six, tail);
-    assert(fields_kind(six).kind == 0);
+    assert(fk(six) == 0);
     var seven: u8[>..] = [];
     format(seven, head);
     i = 0;
@@ -2169,9 +2208,9 @@ fn test_swift_order() {
     expect_fields(":20:R\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", 2, "28C");
     expect_fields(":20:R\n:25:A\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", 2, "60F");
     // An interim report with :34F: and :13D: before the opening balance passes.
-    assert(fields_kind(":20:I\n:25:A\n:28C:5/1\n:34F:EUR0,\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:90C:1EUR500,00\n").kind == 0);
+    assert(fk(":20:I\n:25:A\n:28C:5/1\n:34F:EUR0,\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:90C:1EUR500,00\n") == 0);
     // :NS: may follow any tag.
-    assert(fields_kind(":20:R\n:25:A\n:NS:note\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n").kind == 0);
+    assert(fk(":20:R\n:25:A\n:NS:note\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n") == 0);
     // The options with the rules off accept the out-of-order file.
     run_mt940(":20:R\n:25:A\n:21:B\n:28C:1/1\n:60F:C250101EUR1,00\n:62F:C250101EUR1,00\n", false, 0, "");
 }
@@ -2189,7 +2228,8 @@ fn test_swift_hostile() {
     var i = 0;
     while i < 100000 { format(many, "x\n"); i += 1; }
     format(many, ":62F:C250101EUR2,00\n");
-    let f = fields_kind(many);
+    var rbuf3: u8[>..] = [];
+    let f = fields_kind(many, rbuf3);
     assert(f.kind == 1 || f.kind == 2);
 }
 
@@ -2299,7 +2339,8 @@ fn style_kind(style: i32, cref: const u8[:], bref: const u8[:]) -> i32 {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
-    return bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes).kind;
+    var xbuf29: u8[>..] = [];
+    return bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf29).kind;
 }
 
 fn test_styles() {
@@ -2446,7 +2487,8 @@ fn qif_round_trip(order: i32) {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    let f = bank_statement::parse_qif(QIF1, lim, ropts, recs, spl, ext);
+    var xbuf30: u8[>..] = [];
+    let f = bank_statement::parse_qif(QIF1, lim, ropts, recs, spl, ext, xbuf30);
     assert(f.kind == 0);
     var out: u8[>..] = [];
     let wopts = bank_statement::QifWriteOptions { date_order: order };
@@ -2459,7 +2501,8 @@ fn qif_round_trip(order: i32) {
     var recs2: bank_statement::QifRecord[>..] = [];
     var spl2: bank_statement::QifSplit[>..] = [];
     var ext2: bank_statement::QifField[>..] = [];
-    let g = bank_statement::parse_qif(out, lim, popts, recs2, spl2, ext2);
+    var xbuf31: u8[>..] = [];
+    let g = bank_statement::parse_qif(out, lim, popts, recs2, spl2, ext2, xbuf31);
     if g.kind != 0 { print("FAIL qif reread ", bank_statement::kind_name(g.kind), " ", g.detail, " line ", g.line, "\n"); }
     assert(g.kind == 0);
     assert(recs2.len == recs.len);
@@ -2479,7 +2522,9 @@ fn test_write_qif() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    assert(bank_statement::parse_qif(QIF1, lim, ropts, recs, spl, ext).kind == 0);
+    var xbuf32: u8[>..] = [];
+    var xbuf32_pre: u8[>..] = [];
+    assert(bank_statement::parse_qif(QIF1, lim, ropts, recs, spl, ext, xbuf32_pre).kind == 0);
     let wopts = bank_statement::QifWriteOptions { date_order: 0 };
     // A line end in a text is a fault: the value cannot add a field.
     recs[0].payee = "Eve\nT999.00";
@@ -2662,7 +2707,9 @@ fn test_write_mt940() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     let popts = bank_statement::Mt940Options { .. };
-    assert(bank_statement::parse_mt940(STMT1, lim, popts, sts, ens, bals, notes).kind == 0);
+    var xbuf33: u8[>..] = [];
+    var xbuf33_pre: u8[>..] = [];
+    assert(bank_statement::parse_mt940(STMT1, lim, popts, sts, ens, bals, notes, xbuf33_pre).kind == 0);
     var out: u8[>..] = [];
     let w = bank_statement::write_mt940(sts, ens, lim, out);
     if w.kind != 0 { print("FAIL mt940 write ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
@@ -2673,7 +2720,8 @@ fn test_write_mt940() {
     var e2: bank_statement::Entry[>..] = [];
     var b2: bank_statement::Balance[>..] = [];
     var n2: bank_statement::Note[>..] = [];
-    let g = bank_statement::parse_mt940(out, lim, ropts, s2, e2, b2, n2);
+    var xbuf34: u8[>..] = [];
+    let g = bank_statement::parse_mt940(out, lim, ropts, s2, e2, b2, n2, xbuf34);
     if g.kind != 0 { print("FAIL mt940 reread ", bank_statement::kind_name(g.kind), " line ", g.line, " ", g.tag, " ", g.detail, "\n"); }
     assert(g.kind == 0);
     assert(s2.len == 1 && e2.len == 2 && b2.len == 3);
@@ -2760,7 +2808,9 @@ fn test_qif_item_lists() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ex2: bank_statement::QifField[>..] = [];
-    assert(bank_statement::parse_qif(LISTS_TEXT, lim, ropts, recs, spl, ex2).kind == 0);
+    var xbuf35: u8[>..] = [];
+    var xbuf35_pre: u8[>..] = [];
+    assert(bank_statement::parse_qif(LISTS_TEXT, lim, ropts, recs, spl, ex2, xbuf35_pre).kind == 0);
     // Write and read back to the same values.
     var out: u8[>..] = [];
     let wopts = bank_statement::QifWriteOptions { date_order: 0 };
@@ -3068,6 +3118,60 @@ fn run_tree_write(tree: bank_statement::OfxNode[>..]&, opts: bank_statement::Ofx
     return bank_statement::write_ofx_tree(tree, opts, lim, out).kind;
 }
 
+fn test_legacy_charset() {
+    let lim = bank_statement::default_limits();
+    // MT940: the payee holds a Windows-1252 smart quote.
+    var text: const u8[:] = ":20:S\n:25:A\n:28C:1/1\n:60F:C250101EUR1,00\n:61:250102C10,00NTRFREF\n:86:Caf\x92 Ltd\n:62F:C250102EUR11,00\n";
+    var opts = bank_statement::Mt940Options { skip_balance_check: false, check_fields: false, style: 0 };
+    opts.charset = bank_statement::CS_CP1252;
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    assert(bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, buf).kind == 0);
+    assert(ens.len == 1 && ens[0].narrative == "Caf\xe2\x80\x99 Ltd");
+    // The field rules hold the SWIFT character set, so the decoded
+    // text faults while the rules are on.
+    var optsf = bank_statement::Mt940Options { skip_balance_check: false, check_fields: true, style: 0 };
+    optsf.charset = bank_statement::CS_CP1252;
+    var stsf: bank_statement::Statement[>..] = [];
+    var ensf: bank_statement::Entry[>..] = [];
+    var balsf: bank_statement::Balance[>..] = [];
+    var notesf: bank_statement::Note[>..] = [];
+    var buff: u8[>..] = [];
+    assert(bank_statement::parse_mt940(text, lim, optsf, stsf, ensf, balsf, notesf, buff).kind == bank_statement::F_SYNTAX);
+    // Without the charset the raw byte stays. The field rules are off,
+    // because the raw byte leaves the SWIFT set.
+    var opts0 = bank_statement::Mt940Options { skip_balance_check: false, check_fields: false, style: 0 };
+    var sts2: bank_statement::Statement[>..] = [];
+    var ens2: bank_statement::Entry[>..] = [];
+    var bals2: bank_statement::Balance[>..] = [];
+    var notes2: bank_statement::Note[>..] = [];
+    var buf2: u8[>..] = [];
+    assert(bank_statement::parse_mt940(text, lim, opts0, sts2, ens2, bals2, notes2, buf2).kind == 0);
+    assert(ens2.len == 1 && ens2[0].narrative == "Caf\x92 Ltd");
+    // QIF: the payee holds the same byte.
+    var qtext: const u8[:] = "!Type:Bank\nD01/02/2020\nT-10.00\nPCaf\x92 Ltd\n^\n";
+    var qopts = bank_statement::QifOptions { .. };
+    qopts.charset = bank_statement::CS_CP1252;
+    qopts.date_order = bank_statement::DATE_MDY;
+    var recs: bank_statement::QifRecord[>..] = [];
+    var spl: bank_statement::QifSplit[>..] = [];
+    var ext: bank_statement::QifField[>..] = [];
+    var qbuf: u8[>..] = [];
+    assert(bank_statement::parse_qif(qtext, lim, qopts, recs, spl, ext, qbuf).kind == 0);
+    assert(recs.len == 1 && recs[0].payee == "Caf\xe2\x80\x99 Ltd");
+    var qopts0 = bank_statement::QifOptions { .. };
+    qopts0.date_order = bank_statement::DATE_MDY;
+    var recs2: bank_statement::QifRecord[>..] = [];
+    var spl2: bank_statement::QifSplit[>..] = [];
+    var ext2: bank_statement::QifField[>..] = [];
+    var qbuf2: u8[>..] = [];
+    assert(bank_statement::parse_qif(qtext, lim, qopts0, recs2, spl2, ext2, qbuf2).kind == 0);
+    assert(recs2.len == 1 && recs2[0].payee == "Caf\x92 Ltd");
+}
+
 fn test_camt_reason() {
     var buf: u8[>..] = [];
     assert(bank_statement::reason_known("AC04", buf));
@@ -3333,7 +3437,9 @@ fn test_write_qif_lists() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    assert(bank_statement::parse_qif(text, lim, ropts, recs, spl, ext).kind == 0);
+    var xbuf36: u8[>..] = [];
+    var xbuf36_pre: u8[>..] = [];
+    assert(bank_statement::parse_qif(text, lim, ropts, recs, spl, ext, xbuf36_pre).kind == 0);
     var out: u8[>..] = [];
     let wopts = bank_statement::QifWriteOptions { date_order: 0 };
     assert(bank_statement::write_qif(recs, spl, ext, wopts, lim, out).kind == 0);
@@ -3637,7 +3743,8 @@ fn test_write_mt942_hybrid() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     let text = ":20:HYB\n:25:ACC\n:28C:5/1\n:34F:EUR0,\n:60F:C250101EUR100,00\n:61:250102C500,00NTRFREF\n:62F:C250102EUR600,00\n";
-    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    var xbuf37: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf37);
     if f.kind != 0 { print("FAIL hybrid read ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     var out: u8[>..] = [];
@@ -3647,7 +3754,7 @@ fn test_write_mt942_hybrid() {
     assert(find(out, ":34F:EUR0,00") >= 0);
     assert(find(out, ":60F:C250101EUR100,00") >= 0);
     assert(find(out, ":62F:C250102EUR600,00") >= 0);
-    assert(fields_kind(out).kind == 0);
+    assert(fk(out) == 0);
 }
 
 fn test_write_mt942_bare() {
@@ -3658,7 +3765,9 @@ fn test_write_mt942_bare() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     let text = ":20:B\n:25:ACC\n:28C:1\n:34F:EUR0,00\n:61:250102C500,00NTRFREF\n";
-    assert(bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes).kind == 0);
+    var xbuf38: u8[>..] = [];
+    var xbuf38_pre: u8[>..] = [];
+    assert(bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf38_pre).kind == 0);
     var out: u8[>..] = [];
     assert(bank_statement::write_mt940(sts, ens, lim, out).kind == 0);
     assert(out == text);
@@ -3673,7 +3782,8 @@ fn test_write_mt942() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     let text = ":20:INTERIM\n:21:RELATED\n:25:ACC\n:28C:5/1\n:34F:EUR0,\n:34F:EURD100,\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:61:250102D20,00NTRFREF2\n:90D:1EUR20,00\n:90C:1EUR500,00\n";
-    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    var xbuf39: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf39);
     if f.kind != 0 { print("FAIL mt942 read ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     // The writer gives the same text back.
@@ -3684,14 +3794,15 @@ fn test_write_mt942() {
     let want = ":20:INTERIM\n:21:RELATED\n:25:ACC\n:28C:5/1\n:34F:EUR0,00\n:34F:EURD100,00\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:61:250102D20,00NTRFREF2\n:90D:1EUR20,00\n:90C:1EUR500,00\n";
     assert(out == want);
     // The rules of the manual accept the text that the writer gives.
-    assert(fields_kind(text).kind == 0);
-    assert(fields_kind(out).kind == 0);
+    assert(fk(text) == 0);
+    assert(fk(out) == 0);
     // The reader gives the same values back.
     var s2: bank_statement::Statement[>..] = [];
     var e2: bank_statement::Entry[>..] = [];
     var b2: bank_statement::Balance[>..] = [];
     var n2: bank_statement::Note[>..] = [];
-    let g = bank_statement::parse_mt940(out, lim, opts, s2, e2, b2, n2);
+    var xbuf40: u8[>..] = [];
+    let g = bank_statement::parse_mt940(out, lim, opts, s2, e2, b2, n2, xbuf40);
     if g.kind != 0 { print("FAIL mt942 reread ", bank_statement::kind_name(g.kind), " ", g.tag, " ", g.detail, "\n"); }
     assert(g.kind == 0);
     let a = sts[0];
@@ -3801,6 +3912,7 @@ fn main() {
     test_ofx_seclist();
     test_country();
     test_ofx_profile();
+    test_legacy_charset();
     test_camt_reason();
     test_field86();
     test_ofx_charset();

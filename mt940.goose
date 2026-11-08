@@ -226,6 +226,9 @@ struct Mt940Options {
     skip_balance_check: bool,
     check_fields: bool,
     style: i32,
+    // The charset to decode first: 0 keeps the bytes, CS_CP1252 and
+    // CS_LATIN1 decode into UTF-8.
+    charset: i32 = 0,
 }
 
 // State is the working state of one parse. The open statement is the
@@ -777,9 +780,10 @@ fn read_blocks(line: const u8[:], max_depth: i64) -> i64, Fault {
     return -1, no_fault();
 }
 
-// parse_mt940 reads a file of MT940 or MT942 statements. The arrays of the
-// caller receive the statements, the entries, the balances and the notes.
-fn parse_mt940(input: const u8[:], lim: Limits&, opts: Mt940Options&,
+// parse_mt940_decoded reads a file of MT940 or MT942 statements. The
+// arrays of the caller receive the statements, the entries, the
+// balances and the notes.
+fn parse_mt940_decoded(input: const u8[:], lim: Limits&, opts: Mt940Options&,
                statements: Statement[>..]&, entries: Entry[>..]&, balances: Balance[>..]&, notes: Note[>..]&) -> Fault {
     let fi = check_input(input, lim);
     if fi.kind != F_NONE { return fi; }
@@ -925,4 +929,19 @@ fn split_narrative(raw: const u8[:], lim: Limits&, out: NarrativeField[>..]&) ->
         return NARR_SUBFIELD, no_fault();
     }
     return NARR_PLAIN, no_fault();
+}
+
+// parse_mt940 reads a file of MT940 or MT942 statements. When the
+// option names a charset, the input is decoded into UTF-8 first, and
+// the decoded text lives in buf. The text must outlive the statements.
+fn parse_mt940(input: const u8[:], lim: Limits&, opts: Mt940Options&,
+               statements: Statement[>..]&, entries: Entry[>..]&, balances: Balance[>..]&, notes: Note[>..]&,
+               buf: u8[>..]&) -> Fault {
+    if opts.charset != 0 {
+        let mark = buf.len;
+        let f = decode_charset(opts.charset, input, lim, buf);
+        if f.kind != F_NONE { return f; }
+        return parse_mt940_decoded(buf[mark..], lim, opts, statements, entries, balances, notes);
+    }
+    return parse_mt940_decoded(input, lim, opts, statements, entries, balances, notes);
 }

@@ -14,7 +14,8 @@ fn main() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
-    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    var xbuf1: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf1);
     if f.kind != 0 {
         print("error: ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail);
         return 1;
@@ -39,7 +40,8 @@ fn main() {
     var ens2: bank_statement::Entry[>..] = [];
     var bals2: bank_statement::Balance[>..] = [];
     var notes2: bank_statement::Note[>..] = [];
-    let g = bank_statement::parse_mt940(bad, lim, opts, sts2, ens2, bals2, notes2);
+    var xbuf2: u8[>..] = [];
+    let g = bank_statement::parse_mt940(bad, lim, opts, sts2, ens2, bals2, notes2, xbuf2);
     print("bad total: ", bank_statement::kind_name(g.kind), " tag ", g.tag);
     return 0;
 }

@@ -60,6 +60,9 @@ struct QifOptions {
     decimal: u8,
     pivot: i32,
     currency: const u8[:],
+    // The charset to decode first: 0 keeps the bytes, CS_CP1252 and
+    // CS_LATIN1 decode into UTF-8.
+    charset: i32 = 0,
 }
 
 // QifField holds one line that has no typed field.
@@ -493,8 +496,8 @@ fn q_amount(value: const u8[:], opts: QifOptions&, dec: u8, line_no: i64, code: 
     return Amount { minor: a.minor, exp: a.exp, currency: opts.currency }, no_fault();
 }
 
-// parse_qif reads a QIF file.
-fn parse_qif(input: const u8[:], lim: Limits&, opts: QifOptions&,
+// parse_qif_decoded reads a QIF file.
+fn parse_qif_decoded(input: const u8[:], lim: Limits&, opts: QifOptions&,
              records: QifRecord[>..]&, splits: QifSplit[>..]&, extra: QifField[>..]&) -> Fault {
     let fi = check_input(input, lim);
     if fi.kind != F_NONE { return fi; }
@@ -652,4 +655,19 @@ fn parse_qif(input: const u8[:], lim: Limits&, opts: QifOptions&,
         if f.kind != F_NONE { return f; }
     }
     return no_fault();
+}
+
+// parse_qif reads a QIF file. When the option names a charset, the
+// input is decoded into UTF-8 first, and the decoded text lives in buf.
+// The text must outlive the records.
+fn parse_qif(input: const u8[:], lim: Limits&, opts: QifOptions&,
+             records: QifRecord[>..]&, splits: QifSplit[>..]&, extra: QifField[>..]&,
+             buf: u8[>..]&) -> Fault {
+    if opts.charset != 0 {
+        let mark = buf.len;
+        let f = decode_charset(opts.charset, input, lim, buf);
+        if f.kind != F_NONE { return f; }
+        return parse_qif_decoded(buf[mark..], lim, opts, records, splits, extra);
+    }
+    return parse_qif_decoded(input, lim, opts, records, splits, extra);
 }

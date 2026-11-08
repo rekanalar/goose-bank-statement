@@ -14,7 +14,8 @@ fn main() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext);
+    var xbuf1: u8[>..] = [];
+    let f = bank_statement::parse_qif(text, lim, opts, recs, spl, ext, xbuf1);
     if f.kind != 0 {
         print("error: ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail);
         return 1;

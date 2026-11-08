@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.24.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.25.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -663,7 +663,12 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.
-- **The MT940 and QIF readers do not transcode.** A byte above 127 passes through into the text. The caller calls `decode_charset` first. Node `@fin.cx/mt940` fixes the encoding of each field. The OFX readers transcode with the header charset. The package has no other charset than Windows-1252 and ISO-8859-1.
+- **The MT940 and QIF transcode needs the caller to name the charset.** Neither file carries one.
+The option `charset` in `Mt940Options` and `QifOptions` names Windows-1252 or ISO-8859-1. The reader decodes before it parses.
+The decoded text lives in the buffer of the `parse_mt940` and `parse_qif` calls. Node `@fin.cx/mt940` names the encoding per field.
+- **The field rules hold the SWIFT character set.** A decoded text leaves that set. The rules and the decode do not go together. Turn one of the two off.
+- **The OFX readers transcode with the header charset.** The flag `auto_charset` turns that off.
+- **The OFX readers transcode with the header charset.** The flag `auto_charset` turns that off.
 - **The network client needs the `curl` program.** Python `ofxtools` and Go `ofxgo` hold their own HTTP stack. This package runs `curl` as a child process, so the caller needs `curl` on the system. The TLS stack of the system does the crypto.
 - **The answer is held in memory.** The cap is `max_input`, and `curl` enforces it. A parser bound applies after the fetch.
 - **The QIF Payee, Budget and Tag sections have no standard.** GnuCash, KMyMoney and Python `quiffen` skip them. Rust `qif_parser` reads Budget and Tag. The Perl library `Finance::QIF` is the only source for the Payee list. It numbers the address lines `A0` to `A2`. This package keeps the text of each `A` line as written. A numbered file gives lines that start with the number.

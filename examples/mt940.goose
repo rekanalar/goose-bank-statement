@@ -14,7 +14,8 @@ fn main() {
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
-    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes);
+    var xbuf1: u8[>..] = [];
+    let f = bank_statement::parse_mt940(text, lim, opts, sts, ens, bals, notes, xbuf1);
     if f.kind != 0 {
         print("error: ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail);
         return 1;

@@ -13,7 +13,8 @@ fn main() {
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
-    let f = bank_statement::parse_qif(text, lim, ropts, recs, spl, ext);
+    var xbuf1: u8[>..] = [];
+    let f = bank_statement::parse_qif(text, lim, ropts, recs, spl, ext, xbuf1);
     if f.kind != 0 { print("error: ", f.detail, "\n"); return 1; }
     // Write the same records with ISO dates.
     var out: u8[>..] = [];
