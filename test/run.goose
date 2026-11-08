@@ -2908,7 +2908,7 @@ fn test_write_mt940() {
     assert(bank_statement::write_mt940(sts, ens, lim, r8).kind != 0);
 }
 
-const LISTS_TEXT: const u8[:] = "!Account\nNChecking\nTBank\nDMain account\nL1,000.00\n/12/31/2025\n$250.50\n^\n!Type:Cat\nNFood:Dining\nDEating out\nT\nI\nE\nRSched A\nB10.00\nB20.50\nXodd\n^\n!Type:Budget\nNHome\nB5.00\n^\n!Type:Class\nNGarden\nDplants\n^\n!Type:Security\nNAcme Corp\nSACME\nTStock\nGGrowth\n^\n!Type:Tag\nNtrip\nDvacation\n^\n!Type:Payee\nPBob's Cafe\nA1 Main St\nAFloor 2\nCParis\nSIDF\nZ75001\nYFRA\nN0102030405\n#ACC-9\n^\n!Type:Prices\n\"ACME\",50 1/2,\"6/30/98\"\n^\n\"A,B\",10.25,\"1/2'25\"\n^\n";
+const LISTS_TEXT: const u8[:] = "!Account\nNChecking\nTBank\nDMain account\nL1,000.00\n/12/31/2025\n$250.50\n^\n!Type:Cat\nNFood:Dining\nDEating out\nT\nI\nE\nRSched A\nB10.00\nB20.50\nXodd\n^\n!Type:Budget\nNHome\nB5.00\n^\n!Type:Class\nNGarden\nDplants\n^\n!Type:Security\nNAcme Corp\nSACME\nTStock\nGGrowth\n^\n!Type:Tag\nNtrip\nDvacation\n^\n!Type:Payee\nPBob's Cafe\nA1 Main St\nAFloor 2\nCParis\nSIDF\nZ75001\nYFRA\nN0102030405\n#ACC-9\n^\n!Type:Prices\n\"ACME\",50 1/2,\"6/30/98\"\n^\n\"A,B\",10.25,\"1/2'25\",10.5,9.75,42000\n^\n";
 
 fn test_qif_item_lists() {
     let lim = bank_statement::default_limits();
@@ -2944,6 +2944,11 @@ fn test_qif_item_lists() {
     assert(prs[0].symbol == "ACME" && prs[0].price.num == 101 && prs[0].price.den == 2);
     assert(prs[0].date.year == 1998 && prs[0].date.month == 6 && prs[0].date.day == 30);
     assert(prs[1].symbol == "A,B" && prs[1].price.num == 41 && prs[1].price.den == 4 && prs[1].date.year == 2025);
+    // The extra parts of Perl Finance::QIF: a high, a low and a volume.
+    assert(prs[1].has_high && prs[1].high.num == 21 && prs[1].high.den == 2);
+    assert(prs[1].has_low && prs[1].low.num == 39 && prs[1].low.den == 4);
+    assert(prs[1].has_volume && prs[1].volume == 42000);
+    assert(!prs[0].has_high && !prs[0].has_low && !prs[0].has_volume);
     // The record list reader keeps the payee section as fields.
     var recs: bank_statement::QifRecord[>..] = [];
     var spl: bank_statement::QifSplit[>..] = [];
@@ -2968,6 +2973,7 @@ fn test_qif_item_lists() {
     assert(i2[1].budget_count == 2 && b2[i2[1].budget_start + 1].minor == 2050 && e2[i2[1].field_start].value == "odd");
     assert(i2[6].address_count == 2 && l2[i2[6].address_start].value == "1 Main St" && i2[6].account == "ACC-9");
     assert(p2[0].price.num == 101 && p2[0].price.den == 2 && p2[1].symbol == "A,B" && p2[1].price.num == 41);
+    assert(p2[1].has_high && p2[1].high.num == 21 && p2[1].has_low && p2[1].low.num == 39 && p2[1].has_volume && p2[1].volume == 42000);
     var o3: u8[>..] = [];
     assert(bank_statement::write_qif_lists(i2, b2, l2, e2, p2, wopts, lim, o3).kind == 0);
     assert(o3 == out);
@@ -2981,8 +2987,8 @@ fn test_qif_item_faults() {
     var lns: bank_statement::QifField[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
     var prs: bank_statement::QifPrice[>..] = [];
-    // A price line with four parts, an unbalanced quote and a bad price are faults.
-    assert(bank_statement::parse_qif_lists("!Type:Prices\n\"A\",1,\"1/1/2020\",9\n^\n", lim, ropts, items, buds, lns, ext, prs).kind == bank_statement::F_SYNTAX);
+    // A price line with seven parts, an unbalanced quote and a bad price are faults.
+    assert(bank_statement::parse_qif_lists("!Type:Prices\n\"A\",1,\"1/1/2020\",9,8,7,6\n^\n", lim, ropts, items, buds, lns, ext, prs).kind == bank_statement::F_SYNTAX);
     var i2: bank_statement::QifItem[>..] = [];
     var p2: bank_statement::QifPrice[>..] = [];
     assert(bank_statement::parse_qif_lists("!Type:Prices\n\"A,1,\"1/1/2020\"\n", lim, ropts, i2, buds, lns, ext, p2).kind == bank_statement::F_SYNTAX);
@@ -3007,7 +3013,7 @@ fn test_qif_item_faults() {
     it.name = "";
     var two: bank_statement::QifItem[>..] = [it];
     assert(bank_statement::write_qif_lists(two, buds, lns, ext, p3, wopts, lim, out).kind == bank_statement::F_SYNTAX);
-    var bad: bank_statement::QifPrice[>..] = [bank_statement::QifPrice { symbol: "A\"B", price: bank_statement::Rational { num: 1, den: 1 }, price_text: "", date: bank_statement::Date { year: 2020, month: 1, day: 1 } }];
+    var bad: bank_statement::QifPrice[>..] = [bank_statement::QifPrice { symbol: "A\"B", price: bank_statement::Rational { num: 1, den: 1 }, price_text: "", date: bank_statement::Date { year: 2020, month: 1, day: 1 }, has_high: false, high: bank_statement::Rational { num: 0, den: 1 }, has_low: false, low: bank_statement::Rational { num: 0, den: 1 }, has_volume: false, volume: 0 }];
     var none: bank_statement::QifItem[>..] = [];
     assert(bank_statement::write_qif_lists(none, buds, lns, ext, bad, wopts, lim, out).kind == bank_statement::F_SYNTAX);
     // A field code of ! or ^ cannot start a new record or section.

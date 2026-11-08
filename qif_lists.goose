@@ -66,6 +66,12 @@ struct QifPrice {
     price: Rational,
     price_text: const u8[:],
     date: Date,
+    has_high: bool,
+    high: Rational,
+    has_low: bool,
+    low: Rational,
+    has_volume: bool,
+    volume: i64,
 }
 
 fn list_section(k: i32) -> bool {
@@ -101,8 +107,12 @@ fn unquote(s: const u8[:]) -> const u8[:], bool {
 // parse_price reads one price line. A comma inside quotes does not split
 // the line. A line with more or fewer than three parts is a fault.
 fn parse_price(line: const u8[:], dec: u8, order: i32, pivot: i64, line_no: i64) -> QifPrice, Fault {
-    let z = QifPrice { symbol: "", price: Rational { num: 0, den: 1 }, price_text: "", date: no_date() };
-    var cuts = [0, 0, 0, 0, 0, 0];
+    let z = QifPrice { symbol: "", price: Rational { num: 0, den: 1 }, price_text: "", date: no_date(),
+        has_high: false, high: Rational { num: 0, den: 1 }, has_low: false, low: Rational { num: 0, den: 1 },
+        has_volume: false, volume: 0 };
+    // Perl Finance::QIF reads three more parts after the date: a high,
+    // a low and a volume. GnuCash and Rust qif_parser stop at three.
+    var cuts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     var n: i64 = 0;
     var start: i64 = 0;
     var inq = false;
@@ -114,14 +124,14 @@ fn parse_price(line: const u8[:], dec: u8, order: i32, pivot: i64, line_no: i64)
             else if line[i] == ',' && !inq { cut = true; }
         }
         if cut {
-            if n < 3 { cuts[n * 2] = start; cuts[n * 2 + 1] = i; }
+            if n < 6 { cuts[n * 2] = start; cuts[n * 2 + 1] = i; }
             n += 1;
             start = i + 1;
-            if n > 3 { return z, fault(F_SYNTAX, line_no, 1, "", "a price line holds more than three parts"); }
+            if n > 6 { return z, fault(F_SYNTAX, line_no, 1, "", "a price line holds more than six parts"); }
         }
         i += 1;
     }
-    if inq || n != 3 { return z, fault(F_SYNTAX, line_no, 1, "", "a price line needs a symbol, a price and a date"); }
+    if inq || n < 3 || n > 6 { return z, fault(F_SYNTAX, line_no, 1, "", "a price line needs a symbol, a price and a date"); }
     let a = line[cuts[0]..cuts[1]];
     let b = line[cuts[2]..cuts[3]];
     let c = line[cuts[4]..cuts[5]];
@@ -135,7 +145,34 @@ fn parse_price(line: const u8[:], dec: u8, order: i32, pivot: i64, line_no: i64)
     if !ok3 { return z, fault(F_DATE, line_no, 1, "D", "the date of a price has a quote"); }
     let d, df = parse_qif_date(dt, order, pivot, line_no);
     if df.kind != F_NONE { return z, df; }
-    return QifPrice { symbol: sym, price: r, price_text: txt, date: d }, no_fault();
+    var p = QifPrice { symbol: sym, price: r, price_text: txt, date: d,
+        has_high: false, high: Rational { num: 0, den: 1 }, has_low: false, low: Rational { num: 0, den: 1 },
+        has_volume: false, volume: 0 };
+    // The parts of Finance::QIF: the high, the low and the volume.
+    if n >= 4 {
+        let h, okh = unquote(line[cuts[6]..cuts[7]]);
+        if !okh { return z, fault(F_AMOUNT, line_no, 1, "I", "the high of a price has a quote"); }
+        let hr, hf = parse_ratio(h, dec, q_group(dec), line_no, 'I');
+        if hf.kind != F_NONE { return z, hf; }
+        p.high = hr;
+        p.has_high = true;
+    }
+    if n >= 5 {
+        let l, okl = unquote(line[cuts[8]..cuts[9]]);
+        if !okl { return z, fault(F_AMOUNT, line_no, 1, "I", "the low of a price has a quote"); }
+        let lr, lf = parse_ratio(l, dec, q_group(dec), line_no, 'I');
+        if lf.kind != F_NONE { return z, lf; }
+        p.low = lr;
+        p.has_low = true;
+    }
+    if n >= 6 {
+        let w = trim(line[cuts[10]..cuts[11]]);
+        let cnt, okv = digits(w);
+        if !okv { return z, fault(F_SYNTAX, line_no, 1, "", "the volume of a price is not a number"); }
+        p.volume = cnt;
+        p.has_volume = true;
+    }
+    return p, no_fault();
 }
 
 fn push_extra(code: u8, value: const u8[:], lim: Limits&, line_no: i64, items: QifItem[>..]&, cur: i64, extra: QifField[>..]&) -> Fault {
@@ -375,7 +412,24 @@ fn write_price(out: u8[>..]&, p: QifPrice, order: i32, lim: Limits&) -> Fault {
     put(out, v);
     out.push(','); out.push('"');
     put_qif_date(out, p.date, order);
-    out.push('"'); out.push('\n');
+    out.push('"');
+    if p.has_high {
+        out.push(',');
+        var hv: u8[>..] = [];
+        if !put_price(hv, p.high) { return fault(F_AMOUNT, 0, 0, "I", "the denominator of a price is not positive"); }
+        put(out, hv);
+    }
+    if p.has_low {
+        out.push(',');
+        var lv: u8[>..] = [];
+        if !put_price(lv, p.low) { return fault(F_AMOUNT, 0, 0, "I", "the denominator of a price is not positive"); }
+        put(out, lv);
+    }
+    if p.has_volume {
+        out.push(',');
+        put_num(out, p.volume, 0);
+    }
+    out.push('\n');
     put(out, "^\n");
     return no_fault();
 }
