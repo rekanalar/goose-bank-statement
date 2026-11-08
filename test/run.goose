@@ -2813,6 +2813,59 @@ fn test_qif_item_faults() {
     assert(bank_statement::write_qif_lists(three, buds, lns, xf, p3, wopts, lim, out).kind == bank_statement::F_SYNTAX);
 }
 
+const SECLIST_SGML: const u8[:] = """
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:NONE
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX><SECLISTMSGSRSV1><SECLIST>
+<STOCKINFO><SECINFO><SECID><UNIQUEID>123456789<UNIQUEIDTYPE>CUSIP</SECID><SECNAME>Acme &amp; Sons<TICKER>ACME<UNITPRICE>12.50<DTASOF>20200131<CURRENCY><CURRATE>1.1<CURSYM>EUR</CURRENCY><MEMO>core</SECINFO><STOCKTYPE>COMMON<YIELD>2.5</STOCKINFO>
+<MFINFO><SECINFO><SECID><UNIQUEID>MF1<UNIQUEIDTYPE>ISIN</SECID><SECNAME>Fund<UNITPRICE>10 1/2</SECINFO><MFTYPE>OPENEND</MFINFO>
+<OPTINFO><SECINFO><SECID><UNIQUEID>OPT1<UNIQUEIDTYPE>CUSIP</SECID><SECNAME>Call</SECINFO><OPTTYPE>CALL<STRIKEPRICE>50<SECID><UNIQUEID>UNDER<UNIQUEIDTYPE>CUSIP</SECID></OPTINFO>
+</SECLIST></SECLISTMSGSRSV1></OFX>
+""";
+
+fn test_ofx_seclist() {
+    let lim = bank_statement::default_limits();
+    var secs: bank_statement::OfxSecurity[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx_securities(SECLIST_SGML, lim, secs, notes, buf);
+    if f.kind != 0 { print("FAIL seclist ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(secs.len == 3);
+    let a = secs[0];
+    assert(a.kind == "STOCKINFO" && a.id == "123456789" && a.id_type == "CUSIP" && a.name == "Acme & Sons");
+    assert(a.ticker == "ACME" && a.memo == "core" && a.currency == "EUR");
+    assert(a.has_price && a.price.num == 25 && a.price.den == 2 && a.price_text == "12.50");
+    assert(a.price_date.year == 2020 && a.price_date.month == 1 && a.price_date.day == 31);
+    // The leaves outside SECINFO and the CURRATE leaf stay as notes.
+    assert(a.note_count == 3);
+    assert(notes[a.note_start].tag == "CURRATE" && notes[a.note_start + 1].tag == "STOCKTYPE" && notes[a.note_start + 1].value == "COMMON");
+    assert(secs[1].kind == "MFINFO" && secs[1].price.num == 21 && secs[1].price.den == 2);
+    let o = secs[2];
+    assert(o.kind == "OPTINFO" && o.id == "OPT1" && o.note_count == 4);
+    assert(notes[o.note_start + 2].tag == "UNIQUEID" && notes[o.note_start + 2].value == "UNDER");
+    // A file without a list gives nothing.
+    var s2: bank_statement::OfxSecurity[>..] = [];
+    var n2: bank_statement::Note[>..] = [];
+    var b2: u8[>..] = [];
+    assert(bank_statement::parse_ofx_securities(OFX_EXTRA, lim, s2, n2, b2).kind == 0 && s2.len == 0);
+    // A bad price is a fault; a small record limit is a fault.
+    var s3: bank_statement::OfxSecurity[>..] = [];
+    var n3: bank_statement::Note[>..] = [];
+    var b3: u8[>..] = [];
+    var small = bank_statement::default_limits();
+    small.max_records = 2;
+    assert(bank_statement::parse_ofx_securities(SECLIST_SGML, small, s3, n3, b3).kind == bank_statement::F_LIMIT);
+}
+
 fn test_write_qif_lists() {
     let text: const u8[:] = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNFood:Dining\nE\n^\n!Type:Class\nNHome\n^\n!Type:Bank\nD01/02/2025\nT-5.00\nPShop\n^\n";
     let lim = bank_statement::default_limits();
@@ -3280,6 +3333,7 @@ fn main() {
     test_write_qif();
     test_write_qif_lists();
     test_qif_item_lists();
+    test_ofx_seclist();
     test_qif_item_faults();
     test_write_ofx();
     test_write_mt940();

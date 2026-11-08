@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.12.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.13.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -38,6 +38,7 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_qif(input, lim, opts, records, splits, extra)` | reads a QIF file; gives a `Fault` |
 | `parse_camt(input, lim, opts, statements, entries, balances, buf)` | reads a camt.052, camt.053 or camt.054 document; gives a `Fault` |
 | `parse_ofx(input, lim, opts, statements, entries, balances, notes, buf)` | reads an OFX 1.x or OFX 2.x file; gives a `Fault` |
+| `parse_ofx_securities(input, lim, securities, notes, buf)` | reads the security list of an OFX file; gives a `Fault` |
 | `parse_dialect(kind, text, lim, values, buffer)` | reads the named values of a `:86:` text of a Dutch bank; gives a `Fault` |
 | `parse_qif_lists(input, lim, opts, items, budgets, lines, extra, prices)` | reads the list sections of a QIF file into typed records; gives a `Fault` |
 | `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
@@ -534,6 +535,12 @@ The writer checks the totals against the entries, or it gives `F_TOTAL`.
 A report needs a floor limit, because its currency is the currency of its entries.
 A report holds no balance, so a statement that carries one is a fault.
 
+**OFX security list.** `parse_ofx_securities` reads `STOCKINFO`, `MFINFO`, `DEBTINFO`, `OPTINFO` and `OTHERINFO`.
+Each one gives an `OfxSecurity`: id, id type, name, ticker, FIID, rating, memo, currency symbol, price and price date.
+The price is an exact `Rational`; its text stays in `price_text`.
+Every other leaf of the aggregate is a `Note`, so no value is lost. The notes of a security are a range of the array `notes`.
+The writer writes no security list.
+
 **References.** Python `ofxtools` and Go `ofxgo` write OFX. Python `quiffen` writes QIF. Java `prowide-core` writes MT940 and MT942.
 Node `ofx-js` reads only. GnuCash and Rust `qif_parser` write no QIF.
 
@@ -556,9 +563,7 @@ It writes no sign-on request and no bill pay.
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.
 - **The readers do not transcode.** A byte above 127 passes through into the text. The caller calls `decode_charset` first. Node `@fin.cx/mt940` fixes the encoding of each field. The package has no other charset than Windows-1252 and ISO-8859-1.
-- **The OFX reader reads no security list and no profile.** The
-  securities of an investment statement come as positions only.
-  Python `ofxtools` and Go `ofxgo` read the whole security list.
+- **The OFX reader reads no profile.** Python `ofxtools` and Go `ofxgo` read the profile response.
 - **The OFX package has no network.** Python `ofxtools` and
   Go `ofxgo` speak OFX over HTTPS. The standard library of Goose has no
   HTTP client.

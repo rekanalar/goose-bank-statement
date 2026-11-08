@@ -29,5 +29,6 @@ import qif_lists;
 import sgml;
 import ofx;
 import ofx_write;
+import ofx_seclist;
 import camt;
 import transcode;
