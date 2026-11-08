@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.16.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.17.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -40,6 +40,8 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_ofx(input, lim, opts, statements, entries, balances, notes, buf)` | reads an OFX 1.x or OFX 2.x file; gives a `Fault` |
 | `parse_ofx_securities(input, lim, securities, notes, buf)` | reads the security list of an OFX file; gives a `Fault` |
 | `parse_ofx_profile(input, lim, profile, signons, sets, notes, buf)` | reads the profile response of an OFX file; gives a `Fault` |
+| `parse_ofx_tree(input, lim, tree, buf)` | reads every element under the OFX root into a flat list of `OfxNode`; gives a `Fault` |
+| `write_ofx_tree(tree, opts, lim, out)` | appends an OFX file from a list of `OfxNode`; gives a `Fault` |
 | `parse_dialect(kind, text, lim, values, buffer)` | reads the named values of a `:86:` text of a Dutch bank; gives a `Fault` |
 | `parse_qif_lists(input, lim, opts, items, budgets, lines, extra, prices)` | reads the list sections of a QIF file into typed records; gives a `Fault` |
 | `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
@@ -548,6 +550,16 @@ The price is an exact `Rational`; its text stays in `price_text`.
 Every other leaf of the aggregate is a `Note`, so no value is lost. The notes of a security are a range of the array `notes`.
 The writer writes no security list.
 
+**OFX element tree.** The package has typed records for bank and credit card statements only.
+`parse_ofx_tree` and `write_ofx_tree` cover every other message set: the investment statement, the sign-on request, bill pay and the rest.
+An `OfxNode` holds a depth, a name and a text. Depth 0 is a child of the `OFX` root. An aggregate has no text.
+The reader keeps every element and every value, in document order.
+
+The writer checks each name: 1 to 32 capital letters or digits.
+It allows no depth that is two steps down, and no text in an aggregate. A leaf of the OFX DTD needs a text.
+It checks each text for control bytes, escapes `& < >`, and writes the bytes above 127 as numeric references.
+The writer does not know the element order, the enum values or the length of each element. The caller builds those.
+
 **OFX profile.** `parse_ofx_profile` reads the `PROFRS` aggregate of a profile response.
 
 `OfxProfile` holds the institution: name, address, phones, URL, e-mail and the date of the profile. Its field `found` tells whether the file holds a profile.
@@ -574,8 +586,7 @@ This package is below `v1.0.0`. These gaps against the reference libraries stay 
 - **The camt reader reads the statements, not the whole message.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message.
 - **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
 - **The XML tree of the document has no count limit.** The input limit of the package bounds it.
-- **The writers write what the reader types hold.** The writer writes no investment statement.
-It writes no sign-on request and no bill pay.
+- **The investment statement, the sign-on request and bill pay have no typed record.** The element tree writer writes them. It does not check the element order, the enum values or the lengths. Python `ofxtools` and Go `ofxgo` model each element.
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.
@@ -606,6 +617,7 @@ Protections beyond the reference libraries:
 - **Amounts are exact.** Go `evmar/fin` reads a QIF amount through a float and gets cents wrong, as in `8.11`. Python `quiffen` strips every comma. This package checks the groups of a thousands mark and the count of decimals.
 - **The investment values are exact rationals.** Rust `qif_parser` reads the price, the quantity and the commission through a float. It loses digits. This package gives a numerator and a denominator and uses no float.
 - **Overflow is a fault.** An amount, a sum of entries or a count never wraps. The value range ends at the largest and the most negative 64-bit integer, and both are valid amounts.
+- **A name cannot break out.** A name holds capital letters and digits only, so it cannot hold a tag. Python `ofxtools` writes SGML text raw.
 - **A QIF list record cannot break out.** `write_qif_lists` refuses a line end and a control byte in every text. It refuses a field code of `!` or `^`, and a quote in a price symbol. Python `quiffen` escapes none of them.
 - **An ambiguous QIF date is a fault.** Rust `qif_parser` guesses the order. This package asks the caller, or reads the whole file.
 - **Every size has a limit.** The limits cover the input, the line, the field and the nesting of blocks. They also cover the counts of statements, entries, splits, records and fields. Python `mt940` and `quiffen` cap none of them. Python `bankstatementparser` caps the file size only. `default_limits()` holds safe values.

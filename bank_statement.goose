@@ -32,5 +32,6 @@ import ofx;
 import ofx_write;
 import ofx_seclist;
 import ofx_profile;
+import ofx_tree;
 import camt;
 import transcode;

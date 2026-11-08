@@ -2975,6 +2975,88 @@ fn test_ofx_profile() {
     assert(bank_statement::parse_ofx_profile(PROFILE_SGML, small, p4, s4, m4, n4, b4).kind == bank_statement::F_LIMIT);
 }
 
+fn tree_node(depth: i32, name: const u8[:], text: const u8[:]) -> bank_statement::OfxNode {
+    return bank_statement::OfxNode { depth: depth, name: name, text: text };
+}
+
+fn test_ofx_tree() {
+    let lim = bank_statement::default_limits();
+    var tree: bank_statement::OfxNode[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_ofx_tree(OFX_INV, lim, tree, buf);
+    if f.kind != 0 { print("FAIL tree ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(tree.len > 20 && tree[0].depth == 0 && tree[0].name == "INVSTMTMSGSRSV1" && tree[0].text == "");
+    // The investment file gives the same entries after a write in both forms.
+    var base_s: bank_statement::Statement[>..] = [];
+    var base_e: bank_statement::Entry[>..] = [];
+    var base_b: bank_statement::Balance[>..] = [];
+    var base_n: bank_statement::Note[>..] = [];
+    var base_u: u8[>..] = [];
+    let ropts = bank_statement::OfxOptions { .. };
+    assert(bank_statement::parse_ofx(OFX_INV, lim, ropts, base_s, base_e, base_b, base_n, base_u).kind == 0);
+    var v = 0;
+    while v < 3 {
+        var o = ofx_wopts(102);
+        if v == 1 { o = ofx_wopts(211); o.indent = true; }
+        if v == 2 { o.close_leaves = true; }
+        var out: u8[>..] = [];
+        let w = bank_statement::write_ofx_tree(tree, o, lim, out);
+        if w.kind != 0 { print("FAIL tree write ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
+        assert(w.kind == 0);
+        var s2: bank_statement::Statement[>..] = [];
+        var e2: bank_statement::Entry[>..] = [];
+        var b2: bank_statement::Balance[>..] = [];
+        var n2: bank_statement::Note[>..] = [];
+        var u2: u8[>..] = [];
+        assert(bank_statement::parse_ofx(out, lim, ropts, s2, e2, b2, n2, u2).kind == 0);
+        assert(s2.len == base_s.len && e2.len == base_e.len && b2.len == base_b.len);
+        var k: i64 = 0;
+        while k < e2.len {
+            assert(e2[k].type_id == base_e[k].type_id && e2[k].amount.minor == base_e[k].amount.minor);
+            assert(e2[k].units_text == base_e[k].units_text && e2[k].unit_price_text == base_e[k].unit_price_text);
+            k += 1;
+        }
+        // The tree of the output equals the tree of the input.
+        var t2: bank_statement::OfxNode[>..] = [];
+        var u3: u8[>..] = [];
+        assert(bank_statement::parse_ofx_tree(out, lim, t2, u3).kind == 0);
+        assert(t2.len == tree.len);
+        k = 0;
+        while k < t2.len {
+            assert(t2[k].depth == tree[k].depth && t2[k].name == tree[k].name && t2[k].text == tree[k].text);
+            k += 1;
+        }
+        v += 1;
+    }
+    // A sign-on request with a text that holds markup: the text is escaped.
+    var req: bank_statement::OfxNode[>..] = [
+        tree_node(0, "SIGNONMSGSRQV1", ""), tree_node(1, "SONRQ", ""), tree_node(2, "DTCLIENT", "20200101"),
+        tree_node(2, "USERID", "a<b>&c"), tree_node(2, "LANGUAGE", "ENG"),
+    ];
+    var ro: u8[>..] = [];
+    assert(bank_statement::write_ofx_tree(req, ofx_wopts(211), lim, ro).kind == 0);
+    assert(find(ro, "a&lt;b&gt;&amp;c") > 0 && find(ro, "a<b>") < 0);
+    var back: bank_statement::OfxNode[>..] = [];
+    var rb: u8[>..] = [];
+    assert(bank_statement::parse_ofx_tree(ro, lim, back, rb).kind == 0);
+    assert(back.len == 5 && back[3].text == "a<b>&c");
+    // Refusals: a bad name, a depth jump, a text in an aggregate, a control byte, an empty leaf.
+    var o2: u8[>..] = [];
+    var bad1: bank_statement::OfxNode[>..] = [tree_node(0, "a b", "x")];
+    assert(bank_statement::write_ofx_tree(bad1, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    var bad2: bank_statement::OfxNode[>..] = [tree_node(0, "A", ""), tree_node(2, "B", "x")];
+    assert(bank_statement::write_ofx_tree(bad2, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    var bad3: bank_statement::OfxNode[>..] = [tree_node(0, "A", "text"), tree_node(1, "B", "x")];
+    assert(bank_statement::write_ofx_tree(bad3, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    var bad4: bank_statement::OfxNode[>..] = [tree_node(0, "A", "x\x01y")];
+    assert(bank_statement::write_ofx_tree(bad4, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    var bad5: bank_statement::OfxNode[>..] = [tree_node(0, "MEMO", "")];
+    assert(bank_statement::write_ofx_tree(bad5, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+    var bad6: bank_statement::OfxNode[>..] = [tree_node(1, "A", "x")];
+    assert(bank_statement::write_ofx_tree(bad6, ofx_wopts(102), lim, o2).kind == bank_statement::F_SYNTAX);
+}
+
 fn test_write_qif_lists() {
     let text: const u8[:] = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNFood:Dining\nE\n^\n!Type:Class\nNHome\n^\n!Type:Bank\nD01/02/2025\nT-5.00\nPShop\n^\n";
     let lim = bank_statement::default_limits();
@@ -3450,6 +3532,7 @@ fn main() {
     test_ofx_seclist();
     test_country();
     test_ofx_profile();
+    test_ofx_tree();
     test_qif_item_faults();
     test_write_ofx();
     test_write_mt940();

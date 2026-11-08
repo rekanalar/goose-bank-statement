@@ -536,16 +536,10 @@ fn write_statement(out: u8[>..]&, w: OfxForm, st: Statement, entries: Entry[>..]
     return no_fault();
 }
 
-// write_ofx appends the statements as an OFX file. All statements are
-// bank statements, or all are credit card statements.
-fn write_ofx(statements: Statement[>..]&, entries: Entry[>..]&,
-             notes: Note[>..]&, opts: OfxWriteOptions, lim: Limits&, out: u8[>..]&) -> Fault {
-    var v = opts.version;
-    if v == 0 { v = 102; }
-    if !version_ok(v) { return fault(F_SYNTAX, 0, 0, "VERSION", "the OFX version is not known"); }
-    let xml = v >= 200;
-    let w = OfxForm { closed: xml || opts.close_leaves, indent: opts.indent };
-    if xml {
+// put_ofx_header writes the header of an OFX file: the XML declaration
+// and the OFX instruction in 2.x, the header lines in 1.x.
+fn put_ofx_header(out: u8[>..]&, v: i32) {
+    if v >= 200 {
         put(out, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\r\n");
         put(out, "<?OFX OFXHEADER=\"200\" VERSION=\"");
         put_num(out, v as i64, 3);
@@ -556,6 +550,18 @@ fn write_ofx(statements: Statement[>..]&, entries: Entry[>..]&,
         put(out, "\r\nSECURITY:NONE\r\nENCODING:USASCII\r\nCHARSET:NONE\r\nCOMPRESSION:NONE\r\n");
         put(out, "OLDFILEUID:NONE\r\nNEWFILEUID:NONE\r\n\r\n");
     }
+}
+
+// write_ofx appends the statements as an OFX file. All statements are
+// bank statements, or all are credit card statements.
+fn write_ofx(statements: Statement[>..]&, entries: Entry[>..]&,
+             notes: Note[>..]&, opts: OfxWriteOptions, lim: Limits&, out: u8[>..]&) -> Fault {
+    var v = opts.version;
+    if v == 0 { v = 102; }
+    if !version_ok(v) { return fault(F_SYNTAX, 0, 0, "VERSION", "the OFX version is not known"); }
+    let xml = v >= 200;
+    let w = OfxForm { closed: xml || opts.close_leaves, indent: opts.indent };
+    put_ofx_header(out, v);
     open_tag(out, w, "OFX", 0);
     open_tag(out, w, "SIGNONMSGSRSV1", 1);
     open_tag(out, w, "SONRS", 2);
