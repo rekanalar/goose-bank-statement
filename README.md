@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.18.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.19.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -39,6 +39,7 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_camt(input, lim, opts, statements, entries, balances, buf)` | reads a camt.052, camt.053 or camt.054 document; gives a `Fault` |
 | `parse_ofx(input, lim, opts, statements, entries, balances, notes, buf)` | reads an OFX 1.x or OFX 2.x file; gives a `Fault` |
 | `parse_ofx_securities(input, lim, securities, notes, buf)` | reads the security list of an OFX file; gives a `Fault` |
+| `write_ofx_securities(securities, notes, opts, lim, out)` | appends a security list as an OFX file; gives a `Fault` |
 | `parse_ofx_profile(input, lim, profile, signons, sets, notes, buf)` | reads the profile response of an OFX file; gives a `Fault` |
 | `parse_ofx_tree(input, lim, tree, buf)` | reads every element under the OFX root into a flat list of `OfxNode`; gives a `Fault` |
 | `write_ofx_tree(tree, opts, lim, out)` | appends an OFX file from a list of `OfxNode`; checks each element against the rules; gives a `Fault` |
@@ -549,7 +550,12 @@ A report holds no balance, so a statement that carries one is a fault.
 Each one gives an `OfxSecurity`: id, id type, name, ticker, FIID, rating, memo, currency symbol, price and price date.
 The price is an exact `Rational`; its text stays in `price_text`.
 Every other leaf of the aggregate is a `Note`, so no value is lost. The notes of a security are a range of the array `notes`.
-The writer writes no security list.
+
+`write_ofx_securities` writes the securities back as a list. It checks every field against the rules before it writes.
+An unknown kind is a fault. So is an empty id, a name over 120 bytes, and a currency that is not three letters.
+The price becomes an exact decimal, or a fault when no decimal form exists.
+
+The notes of a security come back as the leaves outside `SECINFO`. The writer escapes every text.
 
 **OFX element tree.** The package has typed records for bank and credit card statements only.
 `parse_ofx_tree` and `write_ofx_tree` cover every other message set: the investment statement, the sign-on request, bill pay and the rest.
@@ -646,6 +652,7 @@ Protections beyond the reference libraries:
   reference library does. A deep SGML body crashes `ofx-js` and
   `ofxtools` with a stack overflow.
 - **No entity of a document expands.** The package `goose-xml` skips a doctype. It never expands an entity. An unknown entity is a fault. It also refuses a picture deeper than 256 levels. Java `prowide-iso20022` and Python `camt053` use a parser that reads a doctype with an internal subset.
+- **The security list writer checks every field.** An unknown kind is a fault. So is a missing id or name. So is a price with no finite decimal form. Python `ofxtools` writes the price through a float context.
 - **The OFX tree writer checks the rules.** An unknown element is a fault. So is an element out of order. So is a required element that is absent. So is a text that breaks its kind. The reference writers trust the caller.
 - **The OFX writer escapes text.** Python `ofxtools` writes the text of the SGML form raw. A memo that holds `</STMTTRN><STMTTRN>` then adds a transaction. This package writes `&`, `<` and `>` as entities. It writes a byte above 127 as a numeric reference. Both forms do this.
 - **The QIF writer refuses a line end.** Python `quiffen` escapes nothing. A payee with a line end can add an amount or end the record. This package gives a fault. A field code of `!` or `^` is a fault too.

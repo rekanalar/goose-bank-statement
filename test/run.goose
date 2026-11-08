@@ -2867,6 +2867,64 @@ fn test_ofx_seclist() {
     var small = bank_statement::default_limits();
     small.max_records = 2;
     assert(bank_statement::parse_ofx_securities(SECLIST_SGML, small, s3, n3, b3).kind == bank_statement::F_LIMIT);
+    // The writer writes the list back and the reader reads the same
+    // securities.
+    var out: u8[>..] = [];
+    let wf = bank_statement::write_ofx_securities(secs, notes, ofx_wopts(102), lim, out);
+    if wf.kind != 0 { print("FAIL seclist write ", bank_statement::kind_name(wf.kind), " ", wf.tag, " ", wf.detail, "\n"); }
+    assert(wf.kind == 0);
+    var secs4: bank_statement::OfxSecurity[>..] = [];
+    var n4: bank_statement::Note[>..] = [];
+    var b4: u8[>..] = [];
+    assert(bank_statement::parse_ofx_securities(out, lim, secs4, n4, b4).kind == 0);
+    assert(secs4.len == 3 && n4.len == notes.len);
+    var k: i64 = 0;
+    while k < secs4.len {
+        let x = secs4[k];
+        let y = secs[k];
+        assert(x.kind == y.kind && x.id == y.id && x.id_type == y.id_type && x.name == y.name);
+        assert(x.ticker == y.ticker && x.fiid == y.fiid && x.rating == y.rating && x.memo == y.memo);
+        assert(x.currency == y.currency && x.has_price == y.has_price);
+        assert(x.price.num == y.price.num && x.price.den == y.price.den);
+        assert(x.price_date.year == y.price_date.year && x.price_date.day == y.price_date.day);
+        assert(x.note_count == y.note_count);
+        var m: i64 = 0;
+        while m < x.note_count {
+            assert(n4[(x.note_start + m) as i64].tag == notes[(y.note_start + m) as i64].tag);
+            assert(n4[(x.note_start + m) as i64].value == notes[(y.note_start + m) as i64].value);
+            m += 1;
+        }
+        k += 1;
+    }
+    // The writer accepts one form of the list too.
+    var out2: u8[>..] = [];
+    assert(bank_statement::write_ofx_securities(secs, notes, ofx_wopts(211), lim, out2).kind == 0);
+    assert(find(out2, "</SECNAME>") > 0);
+    // Refusals: an unknown kind, an empty id, a long currency, a price
+    // with no decimal form.
+    let z = bank_statement::Rational { num: 0, den: 1 };
+    var bad = bank_statement::OfxSecurity {
+        kind: "BONDINFO", id: "1", id_type: "CUSIP", name: "B", ticker: "", fiid: "", rating: "", memo: "",
+        currency: "", has_price: false, price: z, price_text: "", price_date: bank_statement::no_date(),
+        note_start: 0, note_count: 0,
+    };
+    var o3: u8[>..] = [];
+    var one: bank_statement::OfxSecurity[>..] = [bad];
+    var no: bank_statement::Note[>..] = [];
+    assert(bank_statement::write_ofx_securities(one, no, ofx_wopts(102), lim, o3).kind == bank_statement::F_UNKNOWN_TAG);
+    bad.kind = "STOCKINFO";
+    bad.id = "";
+    var one2: bank_statement::OfxSecurity[>..] = [bad];
+    assert(bank_statement::write_ofx_securities(one2, no, ofx_wopts(102), lim, o3).kind == bank_statement::F_SYNTAX);
+    bad.id = "1";
+    bad.currency = "EURO";
+    var one3: bank_statement::OfxSecurity[>..] = [bad];
+    assert(bank_statement::write_ofx_securities(one3, no, ofx_wopts(102), lim, o3).kind == bank_statement::F_SYNTAX);
+    bad.currency = "";
+    bad.has_price = true;
+    bad.price = bank_statement::Rational { num: 1, den: 3 };
+    var one4: bank_statement::OfxSecurity[>..] = [bad];
+    assert(bank_statement::write_ofx_securities(one4, no, ofx_wopts(102), lim, o3).kind == bank_statement::F_AMOUNT);
 }
 
 fn test_country() {
