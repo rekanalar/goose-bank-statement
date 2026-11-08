@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.10.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.11.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -42,6 +42,9 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `write_qif(records, splits, extra, opts, lim, out)` | appends a QIF file to `out`; gives a `Fault` |
 | `write_ofx(statements, entries, notes, opts, lim, out)` | appends an OFX 1.x or 2.x file to `out`; gives a `Fault` |
 | `write_mt940(statements, entries, lim, out)` | appends MT940 statements to `out`; gives a `Fault` |
+| `decode_charset(kind, input, lim, out)` | turns Windows-1252 or ISO-8859-1 bytes into UTF-8; gives a `Fault` |
+| `encode_charset(kind, input, lim, out)` | turns UTF-8 into Windows-1252 or ISO-8859-1 bytes; gives a `Fault` |
+| `header_charset(input)` | reads the `CHARSET` line of an OFX 1.x header; gives `CS_CP1252`, `CS_LATIN1` or 0 |
 | `split_category(l)` | splits an `L` value into name, sub-category, class and transfer account |
 | `parse_amount(text, exp, decimal, group)` | reads an amount into minor units; gives `Amount, Fault` |
 | `parse_number(text, decimal, group)` | reads a decimal into a mantissa and a scale; the scale drops the zeros at the end of the decimal part; gives `i64, i32, Fault` |
@@ -435,6 +438,19 @@ The values point into the text or into the buffer. Both must outlive the values.
 The ABN AMRO account number loses its dots, so it goes into the buffer.
 This package keeps scanning the tags after the account number. Python `mt940` stops there, so this package may give more values.
 
+### Transcoding
+
+The readers keep the bytes of a text as they are. Banks send files in Windows-1252 or ISO-8859-1.
+Turn such a file into UTF-8 before you read it. Use `decode_charset` with `CS_CP1252` or `CS_LATIN1`.
+For an OFX 1.x file, `header_charset` reads the `CHARSET` line and tells which one to use.
+`encode_charset` does the reverse for a bank that wants a legacy file.
+
+Windows-1252 leaves five bytes undefined: `0x81`, `0x8D`, `0x8F`, `0x90` and `0x9D`.
+Python `codecs` refuses them. The WHATWG standard maps them to control characters.
+
+This package refuses them. A control character in a statement is a defect of the file.
+A character that the charset lacks is a fault. The package never replaces and never drops a character.
+
 ### Writers
 
 Each writer takes the arrays that the matching reader gives. It appends text to a `u8[>..]` buffer of the caller.
@@ -512,7 +528,7 @@ It writes no sign-on request, no bill pay and no QIF payee list.
 - **The OFX writer writes bank statements or credit card statements, not both in one call.**
 - **The field rules are off by default.** The flag `check_fields` turns on the widths and the order of the manual. Java `prowide-core` holds a validation module with more rules for the tags of other message types.
 - **Only five bank dialects exist.** The package reads Rabobank, ABN AMRO, ING, Regiobank and mBank. A caller reads other banks from the `:86:` text.
-- **There is no transcoding.** A byte above 127 passes through into the text. Node `@fin.cx/mt940` fixes the encoding of each field.
+- **The readers do not transcode.** A byte above 127 passes through into the text. The caller calls `decode_charset` first. Node `@fin.cx/mt940` fixes the encoding of each field. The package has no other charset than Windows-1252 and ISO-8859-1.
 - **The OFX reader reads no security list and no profile.** The
   securities of an investment statement come as positions only.
   Python `ofxtools` and Go `ofxgo` read the whole security list.
@@ -558,6 +574,7 @@ Protections beyond the reference libraries:
 - **The OFX writer escapes text.** Python `ofxtools` writes the text of the SGML form raw. A memo that holds `</STMTTRN><STMTTRN>` then adds a transaction. This package writes `&`, `<` and `>` as entities. It writes a byte above 127 as a numeric reference. Both forms do this.
 - **The QIF writer refuses a line end.** Python `quiffen` escapes nothing. A payee with a line end can add an amount or end the record. This package gives a fault. A field code of `!` or `^` is a fault too.
 - **The MT940 writer refuses a tag line.** A narrative line that starts with a colon is a fault. So is a lone minus. So is a byte outside the SWIFT set.
+- **Transcoding refuses what it cannot map.** A byte that Windows-1252 leaves undefined is a fault. So is a character that the target charset lacks. Output has the limit `max_input`.
 - **The writers use no float.** An amount comes from minor units by integer division. The most negative 64-bit value writes without overflow.
 - **The MT942 writer checks the totals.** A total that differs from the entries is a fault. Python `mt940` and Rust `mt940-rs` read a total and keep it. This package refuses to write a report with a wrong total.
 
