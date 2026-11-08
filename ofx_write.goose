@@ -210,8 +210,8 @@ fn opt_leaf(out: u8[>..]&, w: OfxForm, tag: const u8[:], value: const u8[:], max
 // write_payee writes a PAYEE aggregate. The name, the first address
 // line, the city, the state, the postal code and the phone are required.
 fn write_payee(out: u8[>..]&, w: OfxForm, p: OfxPayee, depth: i64, lim: Limits&) -> Fault {
-    if p.country.len > 0 && (p.country.len != 3 || !is_upper(p.country[0]) || !is_upper(p.country[1]) || !is_upper(p.country[2])) {
-        return fault(F_SYNTAX, 0, 0, "COUNTRY", "the country is not three capital letters");
+    if p.country.len > 0 && !country_known(p.country) {
+        return fault(F_SYNTAX, 0, 0, "COUNTRY", "the country is not an ISO 3166 alpha-3 code");
     }
     open_tag(out, w, "PAYEE", depth);
     var f = leaf(out, w, "NAME", p.name, 32, depth + 1, lim);

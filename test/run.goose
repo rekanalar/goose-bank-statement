@@ -2866,6 +2866,41 @@ fn test_ofx_seclist() {
     assert(bank_statement::parse_ofx_securities(SECLIST_SGML, small, s3, n3, b3).kind == bank_statement::F_LIMIT);
 }
 
+fn test_country() {
+    assert(bank_statement::country_known("USA") && bank_statement::country_known("FRA") && bank_statement::country_known("ZWE"));
+    assert(bank_statement::country_known("ABW") && bank_statement::country_known("SSD"));
+    assert(!bank_statement::country_known("XKX") && !bank_statement::country_known("usa") && !bank_statement::country_known("US") && !bank_statement::country_known(""));
+    // Every code of the table is found, so the table is sorted.
+    for c in bank_statement::COUNTRY_CODES { assert(bank_statement::country_known(c)); }
+    assert(bank_statement::COUNTRY_CODES.len == 250);
+    let lim = bank_statement::default_limits();
+    let at = find(OFX_EXTRA, "<COUNTRY>FRA");
+    assert(at > 0);
+    var tb: u8[>..] = [];
+    bank_statement::put(tb, OFX_EXTRA[..at]);
+    bank_statement::put(tb, "<COUNTRY>ZZZ");
+    bank_statement::put(tb, OFX_EXTRA[at + 12..]);
+    let text: const u8[:] = tb;
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var notes: bank_statement::Note[>..] = [];
+    var buf: u8[>..] = [];
+    // The reader accepts an unknown country by default and refuses it on request.
+    let lax = bank_statement::OfxOptions { .. };
+    assert(bank_statement::parse_ofx(text, lim, lax, sts, ens, bals, notes, buf).kind == 0);
+    var s2: bank_statement::Statement[>..] = [];
+    var e2: bank_statement::Entry[>..] = [];
+    var b2: bank_statement::Balance[>..] = [];
+    var n2: bank_statement::Note[>..] = [];
+    var u2: u8[>..] = [];
+    let strict = bank_statement::OfxOptions { check_country: true, .. };
+    assert(bank_statement::parse_ofx(text, lim, strict, s2, e2, b2, n2, u2).kind == bank_statement::F_SYNTAX);
+    // The writer always refuses it.
+    var out: u8[>..] = [];
+    assert(bank_statement::write_ofx(sts, ens, notes, ofx_wopts(102), lim, out).kind == bank_statement::F_SYNTAX);
+}
+
 fn test_write_qif_lists() {
     let text: const u8[:] = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNFood:Dining\nE\n^\n!Type:Class\nNHome\n^\n!Type:Bank\nD01/02/2025\nT-5.00\nPShop\n^\n";
     let lim = bank_statement::default_limits();
@@ -3334,6 +3369,7 @@ fn main() {
     test_write_qif_lists();
     test_qif_item_lists();
     test_ofx_seclist();
+    test_country();
     test_qif_item_faults();
     test_write_ofx();
     test_write_mt940();

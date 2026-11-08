@@ -17,6 +17,7 @@ import text;
 import limits;
 import amount;
 import currency;
+import country;
 import date;
 import mt940;
 import mt940_write;

@@ -18,7 +18,7 @@ Every parse is one linear pass with no recursion. Every size has a limit.
 Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.13.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.14.0";
 import xml from "rekanalar/goose-xml@v2.0.0";
 ```
 
@@ -53,6 +53,7 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_number(text, decimal, group)` | reads a decimal into a mantissa and a scale; the scale drops the zeros at the end of the decimal part; gives `i64, i32, Fault` |
 | `currency_exponent(code)` | gives the count of minor digits of an ISO 4217 code; 2 for a code the table does not hold |
 | `currency_known(code)` | tells whether a code sits in the ISO 4217 table |
+| `country_known(code)` | tells whether a code sits in the ISO 3166 alpha-3 table |
 | `default_limits()` | gives the safe limits |
 | `kind_name(kind)` | gives the name of a fault kind |
 
@@ -292,8 +293,9 @@ A date with no zone means GMT.
 The amount of a statement is exact. A comma is a decimal separator only
 when the text holds no dot. An exponent, a NaN and two marks are faults.
 
-`OfxOptions` holds one flag. `skip_pending` is false by default.
-The pending list of a statement gives entries like the booked list.
+`OfxOptions` holds two flags. Both are false by default.
+`skip_pending` drops the pending list. Without it, the pending list gives entries like the booked list.
+`check_country` refuses a `COUNTRY` that is not an ISO 3166 alpha-3 code.
 
 ```goose
 var sts: bank_statement::Statement[>..] = [];
@@ -334,7 +336,9 @@ The writer writes the fields in the order of the OFX specification and checks th
 
 Those limits are `PAYEEID` 12, `EXTDNAME` 100, `CORRECTFITID` 255 and the `PAYEE` fields 32, 5 and 11.
 A `PAYEE` needs its name, first address line, city, state, postal code and phone.
-The country is three capital letters. The package holds no table of country codes.
+The country is a code of the table `COUNTRY_CODES`: 250 ISO 3166-1 alpha-3 codes from Python `ofxtools`. `country_known(code)` tells whether a code is in it.
+
+The table holds `ANT`, a retired code, and no code for Kosovo. Go `ofxgo` checks the length only. The writer follows `ofxtools` and refuses an unknown code.
 A correction needs both `CORRECTFITID` and `CORRECTACTION`.
 
 The `SIC` code is a number of one to nine digits.

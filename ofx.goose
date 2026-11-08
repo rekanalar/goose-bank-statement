@@ -27,6 +27,7 @@ import sgml;
 // safe one: the pending list is read.
 struct OfxOptions {
     skip_pending: bool,
+    check_country: bool,
 }
 
 // parse_ofx reads one OFX file into the arrays of the caller. The
@@ -68,6 +69,13 @@ fn parse_ofx(input: const u8[:], lim: Limits&, opts: OfxOptions&,
         }
         // An unknown message set is skipped.
         c = sgml_next(nodes, c);
+    }
+    if opts.check_country {
+        for e in entries {
+            if e.ofx.has_payee && e.ofx.payee.country.len > 0 && !country_known(e.ofx.payee.country) {
+                return fault(F_SYNTAX, 0, 0, "COUNTRY", "the country is not an ISO 3166 alpha-3 code");
+            }
+        }
     }
     return no_fault();
 }
