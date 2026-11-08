@@ -2,6 +2,7 @@
 // Run with: goose run examples/mt942.goose
 
 import std;
+import xml from "rekanalar/goose-xml@v2.0.0";
 import bank_statement from "..";
 
 fn main() {

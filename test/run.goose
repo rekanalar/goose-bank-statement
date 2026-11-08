@@ -2,6 +2,7 @@
 
 import std;
 import os;
+import xml from "rekanalar/goose-xml@v2.0.0";
 import bank_statement from "..";
 
 fn expect_amount(text: const u8[:], exp: i32, dec: u8, grp: u8, want: i64) {
@@ -708,6 +709,856 @@ fn test_linear_time() {
     assert(b <= 3 * a + 30000000);
 }
 
+
+// The camt documents of the tests. They are written in the shapes of the
+// ISO 20022 schema versions .001.02, .001.04 and .001.08.
+const CAMT53: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <GrpHdr><MsgId>MSG-1</MsgId><CreDtTm>2025-01-02T15:30:00+01:00</CreDtTm></GrpHdr>
+    <Stmt>
+      <Id>STMT-1</Id>
+      <ElctrncSeqNb>42</ElctrncSeqNb>
+      <LglSeqNb>7</LglSeqNb>
+      <CreDtTm>2025-01-02T15:30:00+01:00</CreDtTm>
+      <Acct><Id><IBAN>DE89370400440532013000</IBAN></Id><Ccy>EUR</Ccy></Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-01-01</Dt></Dt></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1700.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-01-02</Dt></Dt></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLAV</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1700.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-01-02</Dt></Dt></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>FWAV</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1800.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2025-02-01</Dt></Dt></Bal>
+      <Bal><Tp><CdOrPrtry><Prtry>OWN1</Prtry></CdOrPrtry></Tp><Amt Ccy="EUR">900.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>OPAV</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>ITAV</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1200.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>PRCD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">900.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>XPCD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">800.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Ntry>
+        <Amt Ccy="EUR">500.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2025-01-02</Dt></BookgDt>
+        <ValDt><Dt>2025-01-03</Dt></ValDt>
+        <AcctSvcrRef>BREF-1</AcctSvcrRef>
+        <NtryRef>EREF-1</NtryRef>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <AddtlNtryInf>Payment for services</AddtlNtryInf>
+        <NtryDtls>
+          <Btch><MsgId>BATCH-1</MsgId><PmtInfId>PINF-1</PmtInfId><NbOfTxs>2</NbOfTxs><TtlAmt Ccy="EUR">700.00</TtlAmt></Btch>
+          <TxDtls>
+            <Refs><EndToEndId>E2E-1</EndToEndId><TxId>TX-1</TxId></Refs>
+            <RltdPties><Dbtr><Pty><Nm>Acme Corp</Nm></Pty></Dbtr><DbtrAcct><Id><IBAN>DE02120300000000202051</IBAN></Id></DbtrAcct></RltdPties>
+            <RmtInf><Ustrd>Invoice 42</Ustrd><Ustrd>Thanks</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">200.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <RvslInd>true</RvslInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2025-01-02</Dt></BookgDt>
+        <BkTxCd><Prtry><Cd>DEB01</Cd><Issr>BANK</Issr></Prtry></BkTxCd>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">999.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>PDNG</Cd></Sts>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>
+""";
+
+const CAMT52: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.052.001.08">
+  <BkToCstmrAcctRpt>
+    <GrpHdr><MsgId>RPT-MSG</MsgId></GrpHdr>
+    <Rpt>
+      <Id>RPT-1</Id>
+      <CreDtTm>2025-01-02T10:00:00Z</CreDtTm>
+      <Acct><Id><Othr><Id>ACC-9</Id></Othr></Id></Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <TxsSummry>
+        <TtlNtries><NbOfNtries>2</NbOfNtries></TtlNtries>
+        <TtlCdtNtries><NbOfNtries>1</NbOfNtries><Sum Ccy="EUR">500.00</Sum></TtlCdtNtries>
+        <TtlDbtNtries><NbOfNtries>1</NbOfNtries><Sum Ccy="EUR">200.00</Sum></TtlDbtNtries>
+      </TxsSummry>
+      <Ntry><Amt Ccy="EUR">500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd></Ntry>
+      <Ntry><Amt Ccy="EUR">200.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd></Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>
+""";
+
+const CAMT54: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.04">
+  <BkToCstmrDbtCdtNtfctn>
+    <GrpHdr><MsgId>NTF-MSG</MsgId></GrpHdr>
+    <Ntfctn>
+      <Id>NTF-1</Id>
+      <CreDtTm>2019-04-24T21:28:58</CreDtTm>
+      <Acct><Id><IBAN>CH2909000000250094239</IBAN></Id></Acct>
+      <Ntry>
+        <Amt Ccy="CHF">1500.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <RvslInd>false</RvslInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2019-04-24</Dt></BookgDt>
+        <ValDt><Dt>2019-04-25</Dt></ValDt>
+        <AcctSvcrRef>074820002ZZ9J42U</AcctSvcrRef>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>VCOM</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <NtryDtls><TxDtls><Refs><AcctSvcrRef>074820002ZZ9J42U</AcctSvcrRef></Refs><Amt Ccy="CHF">1500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></TxDtls></NtryDtls>
+        <AddtlNtryInf>SAMMELGUTSCHRIFT</AddtlNtryInf>
+      </Ntry>
+    </Ntfctn>
+  </BkToCstmrDbtCdtNtfctn>
+</Document>
+""";
+
+const CAMT02: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+  <BkToCstmrStmt>
+    <GrpHdr><MsgId>OLD-1</MsgId></GrpHdr>
+    <Stmt>
+      <Id>OLD-STMT</Id>
+      <CreDtTm>2013-05-06T08:00:00</CreDtTm>
+      <Acct><Id><Othr><Id>OLD-ACC</Id></Othr></Id></Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">0.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Ntry>
+        <Amt Ccy="EUR">100.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2013-05-06</Dt></BookgDt>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <NtryDtls><TxDtls><RltdPties><Dbtr><Nm>Old Corp</Nm></Dbtr></RltdPties></TxDtls></NtryDtls>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>
+""";
+
+const CAMTPREFIX: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<camt:Document xmlns:camt="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <camt:BkToCstmrStmt>
+    <camt:GrpHdr><camt:MsgId>P-1</camt:MsgId></camt:GrpHdr>
+    <camt:Stmt>
+      <camt:Id>P-STMT</camt:Id>
+      <camt:Bal><camt:Tp><camt:CdOrPrtry><camt:Cd>OPBD</camt:Cd></camt:CdOrPrtry></camt:Tp><camt:Amt Ccy="EUR">0.00</camt:Amt><camt:CdtDbtInd>CRDT</camt:CdtDbtInd></camt:Bal>
+      <camt:Bal><camt:Tp><camt:CdOrPrtry><camt:Cd>CLBD</camt:Cd></camt:CdOrPrtry></camt:Tp><camt:Amt Ccy="EUR">0.00</camt:Amt><camt:CdtDbtInd>CRDT</camt:CdtDbtInd></camt:Bal>
+    </camt:Stmt>
+  </camt:BkToCstmrStmt>
+</camt:Document>
+""";
+
+// The three documents below are real files of a bank.
+// They come from the test data of the Go library moov-io/iso20022.
+// That library holds the Apache License 2.0.
+
+const REAL52: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.052.001.04" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:iso:std:iso:20022:tech:xsd:camt.052.001.04 file:///C:/Users/alihodzica/Desktop/camt.052/camt.052.001.04.xsd">
+	<BkToCstmrAcctRpt>
+		<GrpHdr>
+			<MsgId>20190424375204223062173</MsgId>
+			<CreDtTm>2019-04-24T16:07:09</CreDtTm>
+			<MsgPgntn>
+				<PgNb>1</PgNb>
+				<LastPgInd>true</LastPgInd>
+			</MsgPgntn>
+			<AddtlInf>SPS/1.6/PROD</AddtlInf>
+		</GrpHdr>
+		<Rpt>
+			<Id>20190424375204223062174</Id>
+			<ElctrncSeqNb>78</ElctrncSeqNb>
+			<CreDtTm>2019-04-24T16:07:09</CreDtTm>
+			<FrToDt>
+				<FrDtTm>2019-04-24T00:00:00</FrDtTm>
+				<ToDtTm>2019-04-24T16:00:00</ToDtTm>
+			</FrToDt>
+			<Acct>
+				<Id>
+					<IBAN>CH2909000000250094239</IBAN>
+				</Id>
+				<Ownr>
+					<Nm>Robert Schneider SA Grands magasins Biel/Bienne</Nm>
+				</Ownr>
+			</Acct>
+			<Bal>
+				<Tp>
+					<CdOrPrtry>
+						<Cd>OPBD</Cd>
+					</CdOrPrtry>
+				</Tp>
+				<Amt Ccy="CHF">208509.19</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<Dt>
+					<Dt>2019-04-24</Dt>
+				</Dt>
+			</Bal>
+			<Bal>
+				<Tp>
+					<CdOrPrtry>
+						<Cd>ITBD</Cd>
+					</CdOrPrtry>
+				</Tp>
+				<Amt Ccy="CHF">207596.19</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<Dt>
+					<Dt>2019-04-24</Dt>
+				</Dt>
+			</Bal>
+			<Ntry>
+				<Amt Ccy="CHF">103.00</Amt>
+				<CdtDbtInd>DBIT</CdtDbtInd>
+				<RvslInd>false</RvslInd>
+				<Sts>BOOK</Sts>
+				<BookgDt>
+					<Dt>2019-04-24</Dt>
+				</BookgDt>
+				<ValDt>
+					<Dt>2019-04-24</Dt>
+				</ValDt>
+				<AcctSvcrRef>074820002ZU1EPZK</AcctSvcrRef>
+				<BkTxCd>
+					<Domn>
+						<Cd>PMNT</Cd>
+						<Fmly>
+							<Cd>ICDT</Cd>
+							<SubFmlyCd>AUTT</SubFmlyCd>
+						</Fmly>
+					</Domn>
+				</BkTxCd>
+				<NtryDtls>
+					<TxDtls>
+						<Refs>
+							<MsgId>20190423-000369773</MsgId>
+							<AcctSvcrRef>25-1120172999-1</AcctSvcrRef>
+							<PmtInfId>30003101</PmtInfId>
+							<EndToEndId>20190423001255000100005</EndToEndId>
+						</Refs>
+						<Amt Ccy="CHF">103.00</Amt>
+						<CdtDbtInd>DBIT</CdtDbtInd>
+					</TxDtls>
+				</NtryDtls>
+				<AddtlNtryInf>GIRO POST CH5109000000250092291 Bernasconi Maria Place de la Gare 12 2502 Biel/Bienne SENDER REFERENZ: 30003101</AddtlNtryInf>
+			</Ntry>
+			<Ntry>
+				<Amt Ccy="CHF">913.00</Amt>
+				<CdtDbtInd>DBIT</CdtDbtInd>
+				<RvslInd>false</RvslInd>
+				<Sts>BOOK</Sts>
+				<BookgDt>
+					<Dt>2019-04-24</Dt>
+				</BookgDt>
+				<ValDt>
+					<Dt>2019-04-24</Dt>
+				</ValDt>
+				<AcctSvcrRef>074820002ZU1EQ0K</AcctSvcrRef>
+				<BkTxCd>
+					<Domn>
+						<Cd>PMNT</Cd>
+						<Fmly>
+							<Cd>ICDT</Cd>
+							<SubFmlyCd>AUTT</SubFmlyCd>
+						</Fmly>
+					</Domn>
+				</BkTxCd>
+				<NtryDtls>
+					<TxDtls>
+						<Refs>
+							<MsgId>20190423-000369773</MsgId>
+							<AcctSvcrRef>25-1120172999-2</AcctSvcrRef>
+							<PmtInfId>30003101</PmtInfId>
+							<EndToEndId>20190423001255000100006</EndToEndId>
+						</Refs>
+						<Amt Ccy="CHF">913.00</Amt>
+						<CdtDbtInd>DBIT</CdtDbtInd>
+					</TxDtls>
+				</NtryDtls>
+				<AddtlNtryInf>GIRO POST CH5109000000250092291 Bernasconi Maria Place de la Gare 12 2502 Biel/Bienne SENDER REFERENZ: 30003101</AddtlNtryInf>
+			</Ntry>
+		</Rpt>
+	</BkToCstmrAcctRpt>
+</Document>
+""";
+
+const REAL53: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.04" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:iso:std:iso:20022:tech:xsd:camt.053.001.04">
+	<BkToCstmrStmt>
+		<GrpHdr>
+			<MsgId>20201124375204229003967</MsgId>
+			<CreDtTm>2020-11-25T02:02:16</CreDtTm>
+			<MsgPgntn>
+				<PgNb>1</PgNb>
+				<LastPgInd>true</LastPgInd>
+			</MsgPgntn>
+			<AddtlInf>SPS/1.7/PROD</AddtlInf>
+		</GrpHdr>
+		<Stmt>
+			<Id>20201124375204229003973</Id>
+			<ElctrncSeqNb>118</ElctrncSeqNb>
+			<CreDtTm>2020-11-25T02:02:16</CreDtTm>
+			<FrToDt>
+				<FrDtTm>2020-06-24T00:00:00</FrDtTm>
+				<ToDtTm>2020-06-24T23:59:59</ToDtTm>
+			</FrToDt>
+			<Acct>
+				<Id>
+					<IBAN>CH2909000000250094239</IBAN>
+				</Id>
+				<Ownr>
+					<Nm>Robert Schneider SA Grands magasins Biel/Bienne</Nm>
+				</Ownr>
+			</Acct>
+			<Bal>
+				<Tp>
+					<CdOrPrtry>
+						<Cd>OPBD</Cd>
+					</CdOrPrtry>
+				</Tp>
+				<Amt Ccy="CHF">211993.19</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<Dt>
+					<Dt>2020-11-24</Dt>
+				</Dt>
+			</Bal>
+			<Bal>
+				<Tp>
+					<CdOrPrtry>
+						<Cd>CLBD</Cd>
+					</CdOrPrtry>
+				</Tp>
+				<Amt Ccy="CHF">215112.21</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<Dt>
+					<Dt>2020-11-24</Dt>
+				</Dt>
+			</Bal>
+			<Bal>
+				<Tp>
+					<CdOrPrtry>
+						<Cd>CLAV</Cd>
+					</CdOrPrtry>
+				</Tp>
+				<Amt Ccy="CHF">215112.21</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<Dt>
+					<Dt>2020-11-24</Dt>
+				</Dt>
+			</Bal>
+			<Bal>
+				<Tp>
+					<CdOrPrtry>
+						<Cd>FWAV</Cd>
+					</CdOrPrtry>
+				</Tp>
+				<Amt Ccy="CHF">216649.21</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<Dt>
+					<Dt>2020-11-25</Dt>
+				</Dt>
+			</Bal>
+			<Ntry>
+				<NtryRef>41100000000872849</NtryRef>
+				<Amt Ccy="CHF">4.50</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<RvslInd>false</RvslInd>
+				<Sts>BOOK</Sts>
+				<BookgDt>
+					<Dt>2020-11-24</Dt>
+				</BookgDt>
+				<ValDt>
+					<Dt>2020-11-24</Dt>
+				</ValDt>
+				<AcctSvcrRef>0758103031480900</AcctSvcrRef>
+				<BkTxCd>
+					<Domn>
+						<Cd>PMNT</Cd>
+						<Fmly>
+							<Cd>IDDT</Cd>
+							<SubFmlyCd>PMDD</SubFmlyCd>
+						</Fmly>
+					</Domn>
+				</BkTxCd>
+				<NtryDtls>
+					<TxDtls>
+						<Refs>
+							<AcctSvcrRef>0758103031480900</AcctSvcrRef>
+						</Refs>
+						<Amt Ccy="CHF">4.50</Amt>
+						<CdtDbtInd>CRDT</CdtDbtInd>
+					</TxDtls>
+				</NtryDtls>
+				<AddtlNtryInf>GUTSCHRIFT CH-DD-BASISLASTSCHRIFT ID-NR. DES ZAHLUNGSEMPFÄNGERS: 41100000000872849 REFERENZ-NR: PmtInfId-CHDD-1</AddtlNtryInf>
+			</Ntry>
+			<Ntry>
+				<Amt Ccy="CHF">77.70</Amt>
+				<CdtDbtInd>DBIT</CdtDbtInd>
+				<RvslInd>false</RvslInd>
+				<Sts>BOOK</Sts>
+				<BookgDt>
+					<Dt>2020-11-24</Dt>
+				</BookgDt>
+				<ValDt>
+					<Dt>2020-11-24</Dt>
+				</ValDt>
+				<AcctSvcrRef>0758103031480977</AcctSvcrRef>
+				<BkTxCd>
+					<Domn>
+						<Cd>PMNT</Cd>
+						<Fmly>
+							<Cd>ICDT</Cd>
+							<SubFmlyCd>AUTT</SubFmlyCd>
+						</Fmly>
+					</Domn>
+				</BkTxCd>
+				<NtryDtls>
+					<TxDtls>
+						<Refs>
+							<AcctSvcrRef>0758103031480977</AcctSvcrRef>
+						</Refs>
+						<Amt Ccy="CHF">77.70</Amt>
+						<CdtDbtInd>CRDT</CdtDbtInd>
+					</TxDtls>
+				</NtryDtls>
+				<AddtlNtryInf>GUTSCHRIFT CH-DD-BASISLASTSCHRIFT ID-NR. DES ZAHLUNGSEMPFÄNGERS: 41100000000872849 REFERENZ-NR: PmtInfId-CHDD-1</AddtlNtryInf>
+			</Ntry>
+			<Ntry>
+				<Amt Ccy="CHF">1500.00</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<RvslInd>false</RvslInd>
+				<Sts>BOOK</Sts>
+				<BookgDt>
+					<Dt>2020-11-24</Dt>
+				</BookgDt>
+				<ValDt>
+					<Dt>2020-11-24</Dt>
+				</ValDt>
+				<AcctSvcrRef>07582000303F0C7U</AcctSvcrRef>
+				<BkTxCd>
+					<Domn>
+						<Cd>PMNT</Cd>
+						<Fmly>
+							<Cd>RCDT</Cd>
+							<SubFmlyCd>AUTT</SubFmlyCd>
+						</Fmly>
+					</Domn>
+				</BkTxCd>
+				<NtryDtls>
+					<TxDtls>
+						<Refs>
+							<AcctSvcrRef>07582000303F0C7U</AcctSvcrRef>
+						</Refs>
+						<Amt Ccy="CHF">1500.00</Amt>
+						<CdtDbtInd>CRDT</CdtDbtInd>
+					</TxDtls>
+				</NtryDtls>
+				<AddtlNtryInf>SAMMELGUTSCHRIFT FÜR KONTO: CH2909000000250094239 VERARBEITUNG VOM 23.11.2020 PAKET ID: 9999999999999999</AddtlNtryInf>
+			</Ntry>
+			<Ntry>
+				<NtryRef>014295803</NtryRef>
+				<Amt Ccy="CHF">1537.00</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<RvslInd>false</RvslInd>
+				<Sts>BOOK</Sts>
+				<BookgDt>
+					<Dt>2020-11-24</Dt>
+				</BookgDt>
+				<ValDt>
+					<Dt>2020-11-25</Dt>
+				</ValDt>
+				<AcctSvcrRef>07582000303KBMSU</AcctSvcrRef>
+				<BkTxCd>
+					<Domn>
+						<Cd>PMNT</Cd>
+						<Fmly>
+							<Cd>RCDT</Cd>
+							<SubFmlyCd>VCOM</SubFmlyCd>
+						</Fmly>
+					</Domn>
+				</BkTxCd>
+				<NtryDtls>
+					<TxDtls>
+						<Refs>
+							<AcctSvcrRef>07582000303KBMSU</AcctSvcrRef>
+						</Refs>
+						<Amt Ccy="CHF">1537.00</Amt>
+						<CdtDbtInd>CRDT</CdtDbtInd>
+					</TxDtls>
+				</NtryDtls>
+				<AddtlNtryInf>SAMMELGUTSCHRIFT ESR VERARBEITUNG VOM 24.11.2020 KUNDENNUMMER 01-429580-3 PAKET ID: 201124CH00000UR0</AddtlNtryInf>
+			</Ntry>
+			<Ntry>
+				<NtryRef>CH7730000001250094239</NtryRef>
+				<Amt Ccy="CHF">1692.22</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<RvslInd>false</RvslInd>
+				<Sts>BOOK</Sts>
+				<BookgDt>
+					<Dt>2020-11-24</Dt>
+				</BookgDt>
+				<ValDt>
+					<Dt>2020-11-24</Dt>
+				</ValDt>
+				<AcctSvcrRef>07582000303KBMSU</AcctSvcrRef>
+				<BkTxCd>
+					<Domn>
+						<Cd>PMNT</Cd>
+						<Fmly>
+							<Cd>RCDT</Cd>
+							<SubFmlyCd>VCOM</SubFmlyCd>
+						</Fmly>
+					</Domn>
+				</BkTxCd>
+				<NtryDtls>
+					<TxDtls>
+						<Refs>
+							<AcctSvcrRef>07582000303KBMSU</AcctSvcrRef>
+						</Refs>
+						<Amt Ccy="CHF">1692.22</Amt>
+						<CdtDbtInd>CRDT</CdtDbtInd>
+					</TxDtls>
+				</NtryDtls>
+				<AddtlNtryInf>SAMMELGUTSCHRIFT FÜR KONTO: CH7730000001250094239 VERARBEITUNG VOM 24.11.2020 PAKET ID: 201124CH000009TB</AddtlNtryInf>
+			</Ntry>
+		</Stmt>
+	</BkToCstmrStmt>
+</Document>
+""";
+
+const REAL54: const u8[:] = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.04" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:iso:std:iso:20022:tech:xsd:camt.054.001.04 file:///C:/Users/alihodzica/Desktop/camt.054/camt.054.001.04.xsd">
+	<BkToCstmrDbtCdtNtfctn>
+		<GrpHdr>
+			<MsgId>201904245375204223076552</MsgId>
+			<CreDtTm>2019-04-24T21:28:58</CreDtTm>
+			<MsgPgntn>
+				<PgNb>1</PgNb>
+				<LastPgInd>true</LastPgInd>
+			</MsgPgntn>
+			<AddtlInf>SPS/1.6/PROD</AddtlInf>
+		</GrpHdr>
+		<Ntfctn>
+			<Id>20190424375204223076553</Id>
+			<CreDtTm>2019-04-24T21:28:58</CreDtTm>
+			<FrToDt>
+				<FrDtTm>2019-04-24T21:28:58</FrDtTm>
+				<ToDtTm>2019-04-24T21:28:58</ToDtTm>
+			</FrToDt>
+			<RptgSrc>
+				<Prtry>CDTN</Prtry>
+			</RptgSrc>
+			<Acct>
+				<Id>
+					<IBAN>CH2909000000250094239</IBAN>
+				</Id>
+				<Ownr>
+					<Nm>Robert Schneider SA Grands magasins Biel/Bienne</Nm>
+				</Ownr>
+			</Acct>
+			<Ntry>
+				<Amt Ccy="CHF">1500.00</Amt>
+				<CdtDbtInd>CRDT</CdtDbtInd>
+				<RvslInd>false</RvslInd>
+				<Sts>BOOK</Sts>
+				<BookgDt>
+					<Dt>2019-04-24</Dt>
+				</BookgDt>
+				<ValDt>
+					<Dt>2019-04-25</Dt>
+				</ValDt>
+				<AcctSvcrRef>074820002ZZ9J42U</AcctSvcrRef>
+				<BkTxCd>
+					<Domn>
+						<Cd>PMNT</Cd>
+						<Fmly>
+							<Cd>RCDT</Cd>
+							<SubFmlyCd>VCOM</SubFmlyCd>
+						</Fmly>
+					</Domn>
+				</BkTxCd>
+				<NtryDtls>
+					<TxDtls>
+						<Refs>
+							<AcctSvcrRef>074820002ZZ9J42U</AcctSvcrRef>
+						</Refs>
+						<Amt Ccy="CHF">1500.00</Amt>
+						<CdtDbtInd>CRDT</CdtDbtInd>
+					</TxDtls>
+				</NtryDtls>
+				<AddtlNtryInf>SAMMELGUTSCHRIFT ESR VERARBEITUNG VOM 24.04.2019 KUNDENNUMMER 01-429580-3 PAKET ID: 180315CH00000HPA</AddtlNtryInf>
+			</Ntry>
+		</Ntfctn>
+	</BkToCstmrDbtCdtNtfctn>
+</Document>
+""";
+
+// run_camt parses a camt document and gives the fault.
+fn run_camt(text: const u8[:], skip: bool, kind: i32) {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::CamtOptions { skip_balance_check: skip };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_camt(text, lim, opts, sts, ens, bals, buf);
+    if f.kind != kind { print("FAIL camt want ", bank_statement::kind_name(kind), " got ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == kind);
+}
+
+fn test_camt_statement() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::CamtOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_camt(CAMT53, lim, opts, sts, ens, bals, buf);
+    if f.kind != 0 { print("FAIL camt53 ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
+    assert(f.kind == 0);
+    assert(sts.len == 1);
+    let st = sts[0];
+    assert(st.reference == "STMT-1");
+    assert(st.related_ref == "MSG-1");
+    assert(st.account == "DE89370400440532013000");
+    assert(st.number == "42" && st.sequence == "7");
+    assert(st.report_date.year == 2025 && st.report_date.month == 1 && st.report_date.day == 2);
+    assert(st.report_minutes == 15 * 60 + 30 && st.report_offset == 60 && st.has_report_time);
+    assert(!st.is_interim);
+    // The balances.
+    assert(st.balance_count == 9);
+    assert(st.opening.kind == bank_statement::BAL_OPENING);
+    assert(st.opening.amount.minor == 100000 && st.opening.amount.currency == "EUR");
+    assert(st.opening.date.year == 2025 && st.opening.date.day == 1);
+    assert(st.opening.code == "OPBD");
+    assert(st.closing.amount.minor == 170000 && st.closing.code == "CLBD");
+    assert(st.available.amount.minor == 170000 && st.available.code == "CLAV");
+    assert(st.forward.amount.minor == 180000 && st.forward.code == "FWAV");
+    assert(st.balance_checked);
+    // The other balance codes. The available and the forward fields
+    // keep the first balance of their kind.
+    assert(bals[5].kind == bank_statement::BAL_AVAILABLE && bals[5].code == "OPAV");
+    assert(bals[6].kind == bank_statement::BAL_AVAILABLE && bals[6].code == "ITAV" && bals[6].intermediate);
+    assert(bals[7].kind == 0 && bals[7].code == "PRCD");
+    assert(bals[8].kind == 0 && bals[8].code == "XPCD");
+    assert(bals[4].kind == 0 && bals[4].code == "OWN1");
+    // The entries.
+    assert(st.entry_count == 3 && ens.len == 3);
+    let e = ens[0];
+    assert(e.mark == "C" && e.amount.minor == 50000 && e.amount.exp == 2 && e.amount.currency == "EUR");
+    assert(e.status == "BOOK");
+    assert(e.value_date.year == 2025 && e.value_date.month == 1 && e.value_date.day == 3);
+    assert(e.entry_date.year == 2025 && e.entry_date.month == 1 && e.entry_date.day == 2);
+    assert(e.bank_ref == "BREF-1" && e.entry_ref == "EREF-1");
+    assert(e.type_id == "PMNT/RCDT/ESCT");
+    assert(e.narrative == "Payment for services");
+    assert(e.customer_ref == "E2E-1");
+    assert(e.counter_name == "Acme Corp" && e.counter_iban == "DE02120300000000202051");
+    assert(e.remittance == "Invoice 42\nThanks");
+    assert(e.batch_count == "2" && e.has_batch_total && e.batch_total.minor == 70000);
+    assert(e.batch_msg_id == "BATCH-1" && e.batch_pmt_id == "PINF-1");
+    // A reversal of a debit is RD and adds to the sum.
+    assert(ens[1].mark == "RD" && ens[1].amount.minor == 20000 && ens[1].type_id == "DEB01/BANK");
+    // A pending entry stays out of the sum.
+    assert(ens[2].status == "PDNG");
+}
+
+fn test_camt_interim() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::CamtOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_camt(CAMT52, lim, opts, sts, ens, bals, buf);
+    assert(f.kind == 0);
+    assert(sts.len == 1 && sts[0].is_interim);
+    assert(sts[0].reference == "RPT-1" && sts[0].related_ref == "RPT-MSG");
+    assert(sts[0].account == "ACC-9");
+    assert(sts[0].report_minutes == 10 * 60 && sts[0].report_offset == 0);
+    // A report has no closing balance, so it has no balance check.
+    assert(sts[0].closing.kind == 0 && !sts[0].balance_checked);
+    // The transaction summary gives the totals.
+    assert(sts[0].has_credit_total && sts[0].credit_count == 1 && sts[0].credit_total.minor == 50000);
+    assert(sts[0].has_debit_total && sts[0].debit_count == 1 && sts[0].debit_total.minor == 20000);
+    // A notification holds no balances.
+    var sts2: bank_statement::Statement[>..] = [];
+    var ens2: bank_statement::Entry[>..] = [];
+    var bals2: bank_statement::Balance[>..] = [];
+    var buf2: u8[>..] = [];
+    let g = bank_statement::parse_camt(CAMT54, lim, opts, sts2, ens2, bals2, buf2);
+    assert(g.kind == 0);
+    assert(sts2.len == 1 && sts2[0].is_interim);
+    assert(sts2[0].reference == "NTF-1" && sts2[0].related_ref == "NTF-MSG");
+    assert(sts2[0].balance_count == 0 && sts2[0].entry_count == 1);
+    assert(ens2[0].amount.minor == 150000 && ens2[0].amount.currency == "CHF");
+    assert(ens2[0].status == "BOOK" && ens2[0].mark == "C");
+    assert(ens2[0].type_id == "PMNT/RCDT/VCOM");
+    assert(ens2[0].narrative == "SAMMELGUTSCHRIFT");
+    assert(ens2[0].value_date.day == 25 && ens2[0].entry_date.day == 24);
+}
+
+fn test_camt_versions() {
+    // The old shape: a plain status and a party without a wrapper.
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::CamtOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_camt(CAMT02, lim, opts, sts, ens, bals, buf);
+    assert(f.kind == 0);
+    assert(sts[0].reference == "OLD-STMT" && sts[0].account == "OLD-ACC");
+    assert(sts[0].report_date.year == 2013 && sts[0].report_minutes == 8 * 60);
+    assert(ens[0].status == "BOOK" && ens[0].counter_name == "Old Corp");
+    assert(sts[0].balance_checked);
+    // A document with a prefix on every element.
+    var sts2: bank_statement::Statement[>..] = [];
+    var ens2: bank_statement::Entry[>..] = [];
+    var bals2: bank_statement::Balance[>..] = [];
+    var buf2: u8[>..] = [];
+    let g = bank_statement::parse_camt(CAMTPREFIX, lim, opts, sts2, ens2, bals2, buf2);
+    assert(g.kind == 0);
+    assert(sts2[0].reference == "P-STMT" && sts2[0].related_ref == "P-1");
+    assert(sts2[0].opening.amount.minor == 0 && sts2[0].closing.amount.minor == 0);
+}
+
+fn test_camt_checks() {
+    // One cent off in the closing balance.
+    let bad = """
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08"><BkToCstmrStmt><Stmt><Id>S</Id>
+<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">200.01</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+<Ntry><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts></Ntry>
+</Stmt></BkToCstmrStmt></Document>
+""";
+    run_camt(bad, false, 7);
+    run_camt(bad, true, 0);
+    // A wrong total in the transaction summary.
+    let bad_total = """
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.052.001.08"><BkToCstmrAcctRpt><Rpt><Id>R</Id>
+<TxsSummry><TtlCdtNtries><NbOfNtries>2</NbOfNtries><Sum Ccy="EUR">500.00</Sum></TtlCdtNtries></TxsSummry>
+<Ntry><Amt Ccy="EUR">500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts></Ntry>
+</Rpt></BkToCstmrAcctRpt></Document>
+""";
+    run_camt(bad_total, false, 8);
+    // A summary with one block for all the entries gives no credit or
+    // debit total, so it has no check.
+    let gross = """
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.08"><BkToCstmrDbtCdtNtfctn><Ntfctn><Id>N</Id>
+<TxsSummry><TtlNtries><NbOfNtries>2</NbOfNtries><Sum>300.00</Sum><CdtDbtInd>CRDT</CdtDbtInd></TtlNtries></TxsSummry>
+<Ntry><Amt Ccy="EUR">200.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts></Ntry>
+<Ntry><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts></Ntry>
+</Ntfctn></BkToCstmrDbtCdtNtfctn></Document>
+""";
+    run_camt(gross, false, 0);
+}
+
+fn test_camt_faults() {
+    // A missing amount, a missing currency and a sign in the amount.
+    run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">1.00</Amt></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt>1.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">-1.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">1.00</Amt><CdtDbtInd>XXXX</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    // A root that is not a camt document and a document without a message.
+    run_camt("<Foo/>", false, 2);
+    run_camt("<Document xmlns=\"x\"><Other/></Document>", false, 2);
+    // A document that is not well formed.
+    run_camt("<Document>", false, 2);
+    // A bad date.
+    run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><CreDtTm>2025-13-45T99:99:99</CreDtTm></Stmt></BkToCstmrStmt></Document>", false, 6);
+    // An unknown element is ignored. A statement without both booked
+    // balances has no balance check.
+    run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><FutureThing><Deeper>x</Deeper></FutureThing></Stmt></BkToCstmrStmt></Document>", false, 0);
+    // A document with an entity is refused by the XML layer, so no
+    // entity of it can expand.
+    run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Id>&xxe;</Id></Stmt></BkToCstmrStmt></Document>", false, 2);
+    // A document above the input limit.
+    var lim = bank_statement::default_limits();
+    lim.max_input = 20;
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf: u8[>..] = [];
+    let opts = bank_statement::CamtOptions { .. };
+    let f = bank_statement::parse_camt(CAMT53, lim, opts, sts, ens, bals, buf);
+    assert(f.kind == 1);
+}
+
+
+fn test_camt_two_statements() {
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::CamtOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf: u8[>..] = [];
+    let doc = "<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Id>S1</Id></Stmt><Stmt><Id>S2</Id></Stmt></BkToCstmrStmt></Document>";
+    let f = bank_statement::parse_camt(doc, lim, opts, sts, ens, bals, buf);
+    assert(f.kind == 0);
+    assert(sts.len == 2);
+    assert(sts[0].reference == "S1" && sts[1].reference == "S2");
+}
+
+fn test_camt_real_documents() {
+    // A real camt.052 report of a bank.
+    let lim = bank_statement::default_limits();
+    let opts = bank_statement::CamtOptions { .. };
+    var sts: bank_statement::Statement[>..] = [];
+    var ens: bank_statement::Entry[>..] = [];
+    var bals: bank_statement::Balance[>..] = [];
+    var buf: u8[>..] = [];
+    let f = bank_statement::parse_camt(REAL52, lim, opts, sts, ens, bals, buf);
+    assert(f.kind == 0);
+    assert(sts.len == 1 && sts[0].is_interim);
+    assert(ens.len == 2 && bals.len == 2);
+    // The first entry is a debit of 103.00 Swiss francs.
+    assert(ens[0].mark == "D" && ens[0].amount.minor == 10300 && ens[0].amount.currency == "CHF");
+    assert(ens[0].type_id == "PMNT/ICDT/AUTT");
+    assert(ens[1].mark == "D" && ens[1].amount.minor == 91300);
+    // The opening balance holds 208509.19. The intermediate code keeps
+    // no kind, but its text stays on the balance.
+    assert(sts[0].opening.kind == 1 && sts[0].opening.amount.minor == 20850919);
+    assert(sts[0].opening.code == "OPBD");
+    assert(bals[1].kind == 0 && bals[1].code == "ITBD");
+    // A real camt.054 notification of a bank.
+    var sts2: bank_statement::Statement[>..] = [];
+    var ens2: bank_statement::Entry[>..] = [];
+    var bals2: bank_statement::Balance[>..] = [];
+    var buf2: u8[>..] = [];
+    let g = bank_statement::parse_camt(REAL54, lim, opts, sts2, ens2, bals2, buf2);
+    assert(g.kind == 0);
+    assert(sts2.len == 1 && sts2[0].is_interim && ens2.len == 1 && bals2.len == 0);
+    assert(ens2[0].mark == "C" && ens2[0].amount.minor == 150000 && ens2[0].amount.currency == "CHF");
+    // A real camt.053 of a bank does not add up. The closing balance
+    // of the file differs from the sum of the entries. The balance
+    // check finds it, and the flag turns the check off.
+    var sts3: bank_statement::Statement[>..] = [];
+    var ens3: bank_statement::Entry[>..] = [];
+    var bals3: bank_statement::Balance[>..] = [];
+    var buf3: u8[>..] = [];
+    let h = bank_statement::parse_camt(REAL53, lim, opts, sts3, ens3, bals3, buf3);
+    assert(h.kind == 7 && h.tag == "Bal");
+    var sts4: bank_statement::Statement[>..] = [];
+    var ens4: bank_statement::Entry[>..] = [];
+    var bals4: bank_statement::Balance[>..] = [];
+    var buf4: u8[>..] = [];
+    let opts2 = bank_statement::CamtOptions { skip_balance_check: true };
+    let k = bank_statement::parse_camt(REAL53, lim, opts2, sts4, ens4, bals4, buf4);
+    assert(k.kind == 0);
+    assert(sts4.len == 1 && ens4.len == 5 && bals4.len == 4);
+    assert(sts4[0].opening.amount.minor == 21199319 && sts4[0].closing.amount.minor == 21511221);
+}
+
 fn main() {
     test_hostile();
     test_hostile_qif();
@@ -733,6 +1584,13 @@ fn main() {
     test_narrative();
     test_narrative_pairs();
     test_narrative_plain();
+    test_camt_statement();
+    test_camt_interim();
+    test_camt_versions();
+    test_camt_checks();
+    test_camt_faults();
+    test_camt_real_documents();
+    test_camt_two_statements();
     test_amount();
     test_amount_faults();
     test_exponent();

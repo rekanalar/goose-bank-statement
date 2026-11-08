@@ -4,18 +4,24 @@
 
 Bank statement files for the [Goose](https://github.com/aardappel/goose) programming language.
 The package reads SWIFT MT940 statements, SWIFT MT942 interim reports and QIF files.
-Pure Goose, no C, no dependency beyond the standard library.
+It also reads the ISO 20022 XML documents camt.052, camt.053 and camt.054.
+Pure Goose, no C. The package uses the standard library and the package `goose-xml`.
 
 Money is an integer count of minor units with the exponent of its currency. The package uses no float.
 Every parse is one linear pass with no recursion. Every size has a limit.
 
 ## Install
 
-Add this to the root file of the program that uses it:
+Add these two lines to the root file of the program that uses it:
 
 ```goose
-import bank_statement from "rekanalar/goose-bank-statement@v0.2.0";
+import bank_statement from "rekanalar/goose-bank-statement@v0.3.0";
+import xml from "rekanalar/goose-xml@v2.0.0";
 ```
+
+The camt reader uses the package `goose-xml`. A package that needs another package
+must have that package declared in the root file of the program.
+If the second line is missing, the compiler names the line to add.
 
 ## API
 
@@ -27,6 +33,7 @@ Text fields are spans over the input, so the input must outlive the arrays.
 | `parse_mt940(input, lim, opts, statements, entries, balances, notes)` | reads a file of MT940 or MT942 statements; gives a `Fault` |
 | `split_narrative(raw, lim, out)` | splits a `:86:` text into `?NN` subfields or `/KEY/value/` pairs; gives `kind, Fault` |
 | `parse_qif(input, lim, opts, records, splits, extra)` | reads a QIF file; gives a `Fault` |
+| `parse_camt(input, lim, opts, statements, entries, balances, buf)` | reads a camt.052, camt.053 or camt.054 document; gives a `Fault` |
 | `split_category(l)` | splits an `L` value into name, sub-category, class and transfer account |
 | `parse_amount(text, exp, decimal, group)` | reads an amount into minor units; gives `Amount, Fault` |
 | `parse_number(text, decimal, group)` | reads a decimal into a mantissa and a scale; the scale drops the zeros at the end of the decimal part; gives `i64, i32, Fault` |
@@ -65,6 +72,95 @@ A mismatch gives a fault of kind `F_BALANCE`. The fault holds both sums in `have
 
 The check runs whenever a statement holds both balances. An interim report has no balances, so it has no check.
 Its `:90D:` and `:90C:` totals must match the entries.
+
+### camt.052, camt.053 and camt.054
+
+The reader takes the XML documents of ISO 20022.
+The package `goose-xml` reads the document into a tree, and this package walks that tree.
+The message gives the kind of the statement.
+
+The text of the document goes into the buffer of the caller.
+The fields of the results point at that buffer, so the buffer must outlive the arrays.
+The document itself may go away after the call.
+
+| Message | Container | Statement |
+|---|---|---|
+| camt.052 | `Rpt` of `BkToCstmrAcctRpt` | interim |
+| camt.053 | `Stmt` of `BkToCstmrStmt` | not interim |
+| camt.054 | `Ntfctn` of `BkToCstmrDbtCdtNtfctn` | interim |
+
+An element name matches after the namespace.
+So any schema version from `.001.01` to `.001.14` parses, and any prefix works.
+An element the reader does not know is ignored.
+
+The fields of the statement come from these elements.
+
+| Field | Element |
+|---|---|
+| `reference` | `Id` |
+| `related_ref` | `MsgId` of the group header |
+| `account` | `Acct/Id/IBAN`, or `Acct/Id/Othr/Id` |
+| `number` | `ElctrncSeqNb` |
+| `sequence` | `LglSeqNb` |
+| `report_date`, `report_minutes`, `report_offset` | `CreDtTm` |
+
+The type code of a balance gives its kind. The code text stays on every balance in `code`.
+
+| Code | Kind |
+|---|---|
+| `OPBD` | opening |
+| `CLBD` | closing |
+| `OPAV`, `ITAV`, `CLAV` | available |
+| `FWAV` | forward |
+| any other code, and a `Prtry` code | no kind |
+
+The typed fields of the statement take the `OPBD`, the `CLBD`, the `CLAV` and the `FWAV` balance.
+A second balance of the same kind replaces the first.
+
+The fields of an entry come from these elements.
+
+| Field | Element |
+|---|---|
+| `amount` | `Amt` with its `Ccy` attribute |
+| `mark` | `CdtDbtInd` |
+| `value_date` | `ValDt` |
+| `entry_date` | `BookgDt` |
+| `status` | `Sts`, its text or the text of `Cd` or `Prtry` |
+| `bank_ref` | `AcctSvcrRef` |
+| `entry_ref` | `NtryRef` |
+| `narrative` | `AddtlNtryInf` |
+| `type_id` | `BkTxCd`, `Cd/Fmly/SubFmlyCd` or `Cd/Issr` |
+| `customer_ref` | `Refs/EndToEndId` |
+| `counter_name` | `Dbtr/Nm` for a credit entry, `Cdtr/Nm` for a debit entry |
+| `counter_iban` | `DbtrAcct/Id/IBAN`, or `CdtrAcct/Id/IBAN` |
+| `remittance` | the `Ustrd` lines of `RmtInf` |
+| `batch_msg_id`, `batch_pmt_id`, `batch_count`, `batch_total` | `Btch` |
+
+The text of an amount has no sign. The sign comes from the credit or debit code.
+A reversal of a credit is `RC`. A reversal of a debit is `RD`.
+
+`CamtOptions` holds one flag. `skip_balance_check` is false by default.
+
+The balance check adds the opening balance and the booked entries.
+It compares the sum with the closing balance.
+The pending and the informational entries stay out of the check.
+The check runs for a camt.053 that holds both booked balances.
+A mismatch gives a fault of kind `F_BALANCE`.
+
+The transaction summary of a report gives the credit and the debit totals.
+The blocks `TtlCdtNtries` and `TtlDbtNtries` fill the totals of the statement.
+The totals are checked against the entries, as the `:90C:` and `:90D:` totals of an MT942.
+
+```goose
+var sts: bank_statement::Statement[>..] = [];
+var ens: bank_statement::Entry[>..] = [];
+var bals: bank_statement::Balance[>..] = [];
+var buf: u8[>..] = [];
+let lim = bank_statement::default_limits();
+let opts = bank_statement::CamtOptions { .. };
+let f = bank_statement::parse_camt(text, lim, opts, sts, ens, bals, buf);
+if f.kind != 0 { print(bank_statement::kind_name(f.kind), " in ", f.tag); }
+```
 
 ### QIF
 
@@ -133,7 +229,9 @@ if f.kind != 0 { print(bank_statement::kind_name(f.kind), " at line ", f.line); 
 
 This package is below `v1.0.0`. These gaps against the reference libraries stay open.
 
-- **camt.052, camt.053 and camt.054 are not read.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles.
+- **The camt reader reads the statements, not the whole message.** Java `prowide-iso20022` reads 14 versions of them. Python `camt053` reads four profiles. This package reads the statement, the balances, the entries and the transaction summary of the message.
+- **A summary with one block for all the entries gives no total.** The block holds the sum of every entry. That sum has no sign. The reader ignores the block.
+- **The XML tree of the document has no count limit.** The input limit of the package bounds it.
 - **OFX 1.x and 2.x are not read.** Python `ofxtools`, Go `ofxgo` and Node `ofx-js` read them.
 - **There is no writer.** `ofxtools` writes OFX and GnuCash writes QIF.
 - **Fields are not checked against the SWIFT manual.** Node `@centrapay/swift-parser` fixes the width of each tag. An example is 16 characters for `:20:`. This package accepts a longer value. Real banks send one.
@@ -163,9 +261,11 @@ Protections beyond the reference libraries:
 - **A control byte is a fault.** A NUL byte never reaches a text field. A CR without an LF is a fault too.
 - **An interim line cannot switch off the balance check.** A forged `:13D:` or `:34F:` line does not skip it.
 - **No recursion, linear time.** A hostile file cannot overflow the stack or make the parser slow down.
-- **No XML.** This release reads no XML, so entity expansion has no place to happen.
+- **No entity of a document expands.** The package `goose-xml` skips a doctype. It never expands an entity. An unknown entity is a fault. It also refuses a picture deeper than 256 levels. Java `prowide-iso20022` and Python `camt053` use a parser that reads a doctype with an internal subset.
 
 Risks that stay:
+
+- **The text of a remittance or a party name is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.
 
 - **The text of a narrative, a payee or a memo is untrusted.** The package does not escape it. Escape it yourself for HTML, SQL, a path or a command.
 - **The default input limit is 16 MiB.** Lower it when you read from a form upload.

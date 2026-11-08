@@ -32,6 +32,7 @@ struct Balance {
     intermediate: bool,
     date: Date,
     amount: Amount,
+    code: const u8[:],
 }
 
 // Entry holds one :61: line with the :86: that follows it. The mark is
@@ -49,6 +50,16 @@ struct Entry {
     bank_ref: const u8[:],
     supplementary: const u8[:],
     narrative: const u8[:],
+    status: const u8[:],
+    entry_ref: const u8[:],
+    counter_name: const u8[:],
+    counter_iban: const u8[:],
+    remittance: const u8[:],
+    batch_count: const u8[:],
+    batch_msg_id: const u8[:],
+    batch_pmt_id: const u8[:],
+    batch_total: Amount,
+    has_batch_total: bool,
 }
 
 // Note holds a statement level text: a :NS: field or a :86: that does
@@ -148,7 +159,7 @@ fn first_line(s: const u8[:]) -> const u8[:], const u8[:] {
 }
 
 fn no_balance() -> Balance {
-    return Balance { kind: 0, credit: false, intermediate: false, date: no_date(), amount: Amount { minor: 0, exp: 2, currency: "" } };
+    return Balance { kind: 0, credit: false, intermediate: false, date: no_date(), amount: Amount { minor: 0, exp: 2, currency: "" }, code: "" };
 }
 
 fn new_statement() -> Statement {
@@ -201,6 +212,9 @@ fn parse_entry(value: const u8[:], cur: const u8[:], line_no: i64) -> Entry, Fau
         value_date: no_date(), entry_date: no_date(), mark: "", funds_code: 0,
         amount: Amount { minor: 0, exp: 2, currency: cur },
         type_id: "", customer_ref: "", bank_ref: "", supplementary: "", narrative: "",
+        status: "", entry_ref: "", counter_name: "", counter_iban: "", remittance: "",
+        batch_count: "", batch_msg_id: "", batch_pmt_id: "",
+        batch_total: Amount { minor: 0, exp: 2, currency: "" }, has_batch_total: false,
     };
     let head, rest = first_line(value);
     let tag: const u8[:] = "61";
@@ -280,6 +294,41 @@ fn add_checked(a: i64, b: i64) -> i64, bool {
 }
 
 // finalize checks the statement and pushes it.
+// check_totals checks the totals of a statement against its entries. The
+// debit total counts the debit entries and the credit total counts the
+// credit entries. The tags name the two totals in a fault.
+fn check_totals(st: Statement&, entries: Entry[>..]&, line_no: i64, tag_d: const u8[:], tag_c: const u8[:]) -> Fault {
+    if !st.has_debit_total && !st.has_credit_total { return no_fault(); }
+    var dn: i64 = 0;
+    var cn: i64 = 0;
+    var dsum: i64 = 0;
+    var csum: i64 = 0;
+    var k = 0;
+    while k < st.entry_count {
+        let e = entries[st.entry_start + k];
+        // Debit entries are D and RC. Credit entries are C and RD.
+        if signed_effect(e.mark) < 0 {
+            dn += 1;
+            let s, ok = add_checked(dsum, e.amount.minor);
+            if !ok { return fault(F_OVERFLOW, line_no, 1, tag_d, "sum of entries does not fit in 64 bits"); }
+            dsum = s;
+        } else {
+            cn += 1;
+            let s, ok = add_checked(csum, e.amount.minor);
+            if !ok { return fault(F_OVERFLOW, line_no, 1, tag_c, "sum of entries does not fit in 64 bits"); }
+            csum = s;
+        }
+        k += 1;
+    }
+    if st.has_debit_total && (st.debit_count != dn || st.debit_total.minor != dsum) {
+        return fault(F_TOTAL, line_no, 1, tag_d, "debit total differs from the entries");
+    }
+    if st.has_credit_total && (st.credit_count != cn || st.credit_total.minor != csum) {
+        return fault(F_TOTAL, line_no, 1, tag_c, "credit total differs from the entries");
+    }
+    return no_fault();
+}
+
 fn finalize(S: State&, lim: Limits&, opts: Mt940Options&, line_no: i64, statements: Statement[>..]&, entries: Entry[>..]&) -> Fault {
     let st = statements[S.cur];
     // The check runs whenever both balances are present. An interim flag
@@ -308,35 +357,8 @@ fn finalize(S: State&, lim: Limits&, opts: Mt940Options&, line_no: i64, statemen
         }
     }
     // The totals of an interim report must match the entries.
-    if st.has_debit_total || st.has_credit_total {
-        var dn: i64 = 0;
-        var cn: i64 = 0;
-        var dsum: i64 = 0;
-        var csum: i64 = 0;
-        var k = 0;
-        while k < st.entry_count {
-            let e = entries[st.entry_start + k];
-            // Debit entries are D and RC. Credit entries are C and RD.
-            if signed_effect(e.mark) < 0 {
-                dn += 1;
-                let s, ok = add_checked(dsum, e.amount.minor);
-                if !ok { return fault(F_OVERFLOW, line_no, 1, "90D", "sum of entries does not fit in 64 bits"); }
-                dsum = s;
-            } else {
-                cn += 1;
-                let s, ok = add_checked(csum, e.amount.minor);
-                if !ok { return fault(F_OVERFLOW, line_no, 1, "90C", "sum of entries does not fit in 64 bits"); }
-                csum = s;
-            }
-            k += 1;
-        }
-        if st.has_debit_total && (st.debit_count != dn || st.debit_total.minor != dsum) {
-            return fault(F_TOTAL, line_no, 1, "90D", "debit total differs from the entries");
-        }
-        if st.has_credit_total && (st.credit_count != cn || st.credit_total.minor != csum) {
-            return fault(F_TOTAL, line_no, 1, "90C", "credit total differs from the entries");
-        }
-    }
+    let tf = check_totals(st, entries, line_no, "90D", "90C");
+    if tf.kind != F_NONE { return tf; }
     S.open = false;
     return no_fault();
 }
