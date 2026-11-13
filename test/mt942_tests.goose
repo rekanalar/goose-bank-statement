@@ -7,7 +7,7 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
+import statement_checks;
 
 fn test_mt942() {
     let lim = bank_statement::default_limits();
@@ -29,8 +29,8 @@ fn test_mt942() {
     assert(st.debit_count == 1 && st.debit_total.minor == 2000);
     assert(st.credit_count == 1 && st.credit_total.minor == 50000);
     // A wrong total is an error.
-    common::run_mt940(":20:I\n:34F:EUR0,\n:61:250102C500,00NTRFREF\n:90C:1EUR499,99\n", false, 8, "90C");
-    common::run_mt940(":20:I\n:34F:EUR0,\n:61:250102C500,00NTRFREF\n:90C:2EUR500,00\n", false, 8, "90C");
+    statement_checks::run_mt940(":20:I\n:34F:EUR0,\n:61:250102C500,00NTRFREF\n:90C:1EUR499,99\n", false, 8, "90C");
+    statement_checks::run_mt940(":20:I\n:34F:EUR0,\n:61:250102C500,00NTRFREF\n:90C:2EUR500,00\n", false, 8, "90C");
 }
 
 fn test_write_mt942_hybrid() {
@@ -52,7 +52,7 @@ fn test_write_mt942_hybrid() {
     assert(find(out, ":34F:EUR0,00") >= 0);
     assert(find(out, ":60F:C250101EUR100,00") >= 0);
     assert(find(out, ":62F:C250102EUR600,00") >= 0);
-    assert(common::fk(out) == 0);
+    assert(statement_checks::fk(out) == 0);
 }
 
 fn test_write_mt942_bare() {
@@ -92,8 +92,8 @@ fn test_write_mt942() {
     let want = ":20:INTERIM\n:21:RELATED\n:25:ACC\n:28C:5/1\n:34F:EUR0,00\n:34F:EURD100,00\n:13D:2501021530+0100\n:61:250102C500,00NTRFREF\n:61:250102D20,00NTRFREF2\n:90D:1EUR20,00\n:90C:1EUR500,00\n";
     assert(out == want);
     // The rules of the manual accept the text that the writer gives.
-    assert(common::fk(text) == 0);
-    assert(common::fk(out) == 0);
+    assert(statement_checks::fk(text) == 0);
+    assert(statement_checks::fk(out) == 0);
     // The reader gives the same values back.
     var s2: bank_statement::Statement[>..] = [];
     var e2: bank_statement::Entry[>..] = [];

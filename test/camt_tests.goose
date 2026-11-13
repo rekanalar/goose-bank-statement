@@ -7,8 +7,8 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
-import common_2;
+import statement_checks;
+import sample_texts;
 
 fn test_camt_statement() {
     let lim = bank_statement::default_limits();
@@ -18,7 +18,7 @@ fn test_camt_statement() {
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
     var hd2 = bank_statement::CamtHeader { .. };
-    let f = bank_statement::parse_camt(common::CAMT53, lim, opts, hd2, sts, ens, bals, buf);
+    let f = bank_statement::parse_camt(sample_texts::CAMT53, lim, opts, hd2, sts, ens, bals, buf);
     if f.kind != 0 { print("FAIL camt53 ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(sts.len == 1);
@@ -90,7 +90,7 @@ fn test_camt_apphdr() {
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
     var hd = bank_statement::CamtHeader { .. };
-    let f = bank_statement::parse_camt(common_2::CAMTAPP, lim, opts, hd, sts, ens, bals, buf);
+    let f = bank_statement::parse_camt(sample_texts::CAMTAPP, lim, opts, hd, sts, ens, bals, buf);
     if f.kind != 0 { print("FAIL camtapp ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0 && sts.len == 1);
     assert(hd.definition == "camt.053.001.08" && hd.service == "AccountReporting");
@@ -109,7 +109,7 @@ fn test_camt_interim() {
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
     var hd3 = bank_statement::CamtHeader { .. };
-    let f = bank_statement::parse_camt(common::CAMT52, lim, opts, hd3, sts, ens, bals, buf);
+    let f = bank_statement::parse_camt(sample_texts::CAMT52, lim, opts, hd3, sts, ens, bals, buf);
     assert(f.kind == 0);
     assert(sts.len == 1 && sts[0].is_interim);
     assert(sts[0].reference == "RPT-1" && sts[0].related_ref == "RPT-MSG");
@@ -126,7 +126,7 @@ fn test_camt_interim() {
     var bals2: bank_statement::Balance[>..] = [];
     var buf2: u8[>..] = [];
     var hd4 = bank_statement::CamtHeader { .. };
-    let g = bank_statement::parse_camt(common::CAMT54, lim, opts, hd4, sts2, ens2, bals2, buf2);
+    let g = bank_statement::parse_camt(sample_texts::CAMT54, lim, opts, hd4, sts2, ens2, bals2, buf2);
     assert(g.kind == 0);
     assert(sts2.len == 1 && sts2[0].is_interim);
     assert(sts2[0].reference == "NTF-1" && sts2[0].related_ref == "NTF-MSG");
@@ -147,7 +147,7 @@ fn test_camt_versions() {
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
     var hd5 = bank_statement::CamtHeader { .. };
-    let f = bank_statement::parse_camt(common::CAMT02, lim, opts, hd5, sts, ens, bals, buf);
+    let f = bank_statement::parse_camt(sample_texts::CAMT02, lim, opts, hd5, sts, ens, bals, buf);
     assert(f.kind == 0);
     assert(sts[0].reference == "OLD-STMT" && sts[0].account == "OLD-ACC");
     assert(sts[0].report_date.year == 2013 && sts[0].report_minutes == 8 * 60);
@@ -159,7 +159,7 @@ fn test_camt_versions() {
     var bals2: bank_statement::Balance[>..] = [];
     var buf2: u8[>..] = [];
     var hd6 = bank_statement::CamtHeader { .. };
-    let g = bank_statement::parse_camt(common::CAMTPREFIX, lim, opts, hd6, sts2, ens2, bals2, buf2);
+    let g = bank_statement::parse_camt(sample_texts::CAMTPREFIX, lim, opts, hd6, sts2, ens2, bals2, buf2);
     assert(g.kind == 0);
     assert(sts2[0].reference == "P-STMT" && sts2[0].related_ref == "P-1");
     assert(sts2[0].opening.amount.minor == 0 && sts2[0].closing.amount.minor == 0);
@@ -174,8 +174,8 @@ fn test_camt_checks() {
 <Ntry><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts></Ntry>
 </Stmt></BkToCstmrStmt></Document>
 """;
-    common::run_camt(bad, false, 7);
-    common::run_camt(bad, true, 0);
+    statement_checks::run_camt(bad, false, 7);
+    statement_checks::run_camt(bad, true, 0);
     // A wrong total in the transaction summary.
     let bad_total = """
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.052.001.08"><BkToCstmrAcctRpt><Rpt><Id>R</Id>
@@ -183,7 +183,7 @@ fn test_camt_checks() {
 <Ntry><Amt Ccy="EUR">500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts></Ntry>
 </Rpt></BkToCstmrAcctRpt></Document>
 """;
-    common::run_camt(bad_total, false, 8);
+    statement_checks::run_camt(bad_total, false, 8);
     // A summary with one block for all the entries gives no credit or
     // debit total, so it has no check.
     let gross = """
@@ -193,29 +193,29 @@ fn test_camt_checks() {
 <Ntry><Amt Ccy="EUR">100.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts></Ntry>
 </Ntfctn></BkToCstmrDbtCdtNtfctn></Document>
 """;
-    common::run_camt(gross, false, 0);
+    statement_checks::run_camt(gross, false, 0);
 }
 
 fn test_camt_faults() {
     // A missing amount, a missing currency and a sign in the amount.
-    common::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
-    common::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">1.00</Amt></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
-    common::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt>1.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
-    common::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">-1.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
-    common::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">1.00</Amt><CdtDbtInd>XXXX</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    statement_checks::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    statement_checks::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">1.00</Amt></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    statement_checks::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt>1.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    statement_checks::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">-1.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
+    statement_checks::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Ntry><Amt Ccy=\"EUR\">1.00</Amt><CdtDbtInd>XXXX</CdtDbtInd></Ntry></Stmt></BkToCstmrStmt></Document>", false, 4);
     // A root that is not a camt document and a document without a message.
-    common::run_camt("<Foo/>", false, 2);
-    common::run_camt("<Document xmlns=\"x\"><Other/></Document>", false, 2);
+    statement_checks::run_camt("<Foo/>", false, 2);
+    statement_checks::run_camt("<Document xmlns=\"x\"><Other/></Document>", false, 2);
     // A document that is not well formed.
-    common::run_camt("<Document>", false, 2);
+    statement_checks::run_camt("<Document>", false, 2);
     // A bad date.
-    common::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><CreDtTm>2025-13-45T99:99:99</CreDtTm></Stmt></BkToCstmrStmt></Document>", false, 6);
+    statement_checks::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><CreDtTm>2025-13-45T99:99:99</CreDtTm></Stmt></BkToCstmrStmt></Document>", false, 6);
     // An unknown element is ignored. A statement without both booked
     // balances has no balance check.
-    common::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><FutureThing><Deeper>x</Deeper></FutureThing></Stmt></BkToCstmrStmt></Document>", false, 0);
+    statement_checks::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><FutureThing><Deeper>x</Deeper></FutureThing></Stmt></BkToCstmrStmt></Document>", false, 0);
     // A document with an entity is refused by the XML layer, so no
     // entity of it can expand.
-    common::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Id>&xxe;</Id></Stmt></BkToCstmrStmt></Document>", false, 2);
+    statement_checks::run_camt("<Document xmlns=\"x\"><BkToCstmrStmt><Stmt><Id>&xxe;</Id></Stmt></BkToCstmrStmt></Document>", false, 2);
     // A document above the input limit.
     var lim = bank_statement::default_limits();
     lim.max_input = 20;
@@ -225,7 +225,7 @@ fn test_camt_faults() {
     var buf: u8[>..] = [];
     let opts = bank_statement::CamtOptions { .. };
     var hd7 = bank_statement::CamtHeader { .. };
-    let f = bank_statement::parse_camt(common::CAMT53, lim, opts, hd7, sts, ens, bals, buf);
+    let f = bank_statement::parse_camt(sample_texts::CAMT53, lim, opts, hd7, sts, ens, bals, buf);
     assert(f.kind == 1);
 }
 
@@ -253,7 +253,7 @@ fn test_camt_real_documents() {
     var bals: bank_statement::Balance[>..] = [];
     var buf: u8[>..] = [];
     var hd9 = bank_statement::CamtHeader { .. };
-    let f = bank_statement::parse_camt(common::REAL52, lim, opts, hd9, sts, ens, bals, buf);
+    let f = bank_statement::parse_camt(sample_texts::REAL52, lim, opts, hd9, sts, ens, bals, buf);
     assert(f.kind == 0);
     assert(sts.len == 1 && sts[0].is_interim);
     assert(ens.len == 2 && bals.len == 2);
@@ -272,7 +272,7 @@ fn test_camt_real_documents() {
     var bals2: bank_statement::Balance[>..] = [];
     var buf2: u8[>..] = [];
     var hd10 = bank_statement::CamtHeader { .. };
-    let g = bank_statement::parse_camt(common_2::REAL54, lim, opts, hd10, sts2, ens2, bals2, buf2);
+    let g = bank_statement::parse_camt(sample_texts::REAL54, lim, opts, hd10, sts2, ens2, bals2, buf2);
     assert(g.kind == 0);
     assert(sts2.len == 1 && sts2[0].is_interim && ens2.len == 1 && bals2.len == 0);
     assert(ens2[0].mark == "C" && ens2[0].amount.minor == 150000 && ens2[0].amount.currency == "CHF");
@@ -284,7 +284,7 @@ fn test_camt_real_documents() {
     var bals3: bank_statement::Balance[>..] = [];
     var buf3: u8[>..] = [];
     var hd11 = bank_statement::CamtHeader { .. };
-    let h = bank_statement::parse_camt(common::REAL53, lim, opts, hd11, sts3, ens3, bals3, buf3);
+    let h = bank_statement::parse_camt(sample_texts::REAL53, lim, opts, hd11, sts3, ens3, bals3, buf3);
     assert(h.kind == 7 && h.tag == "Bal");
     var sts4: bank_statement::Statement[>..] = [];
     var ens4: bank_statement::Entry[>..] = [];
@@ -292,7 +292,7 @@ fn test_camt_real_documents() {
     var buf4: u8[>..] = [];
     let opts2 = bank_statement::CamtOptions { skip_balance_check: true };
     var hd12 = bank_statement::CamtHeader { .. };
-    let k = bank_statement::parse_camt(common::REAL53, lim, opts2, hd12, sts4, ens4, bals4, buf4);
+    let k = bank_statement::parse_camt(sample_texts::REAL53, lim, opts2, hd12, sts4, ens4, bals4, buf4);
     assert(k.kind == 0);
     assert(sts4.len == 1 && ens4.len == 5 && bals4.len == 4);
     assert(sts4[0].opening.amount.minor == 21199319 && sts4[0].closing.amount.minor == 21511221);
@@ -327,7 +327,7 @@ fn test_camt_reason() {
     var bals: bank_statement::Balance[>..] = [];
     var buf2: u8[>..] = [];
     var hd = bank_statement::CamtHeader { .. };
-    assert(bank_statement::parse_camt(common::CAMT53, lim, opts, hd, sts, ens, bals, buf2).kind == 0);
+    assert(bank_statement::parse_camt(sample_texts::CAMT53, lim, opts, hd, sts, ens, bals, buf2).kind == 0);
     assert(ens.len > 0);
     let rv, ok = bank_statement::reversal_of(ens[0]);
     assert(ok);

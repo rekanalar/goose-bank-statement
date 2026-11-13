@@ -7,7 +7,7 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
+import statement_checks;
 
 // test_currency_table checks the whole ISO 4217 table: the count, the
 // sort order, the share of every exponent group and one code of each
@@ -61,7 +61,7 @@ fn test_currency_table() {
 
 fn test_currency_rules() {
     // An entry before any balance or floor limit has no currency.
-    common::run_mt940(":20:A\n:61:250101C1NTRFX\n:60F:C250101JPY0\n:62F:C250101JPY1\n", false, 2, "61");
+    statement_checks::run_mt940(":20:A\n:61:250101C1NTRFX\n:60F:C250101JPY0\n:62F:C250101JPY1\n", false, 2, "61");
     // An interim report takes the currency of its floor limit.
     let lim = bank_statement::default_limits();
     let opts = bank_statement::Mt940Options { .. };

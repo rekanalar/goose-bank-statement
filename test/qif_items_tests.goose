@@ -7,7 +7,7 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common_2;
+import sample_texts;
 
 fn test_qif_item_lists() {
     let lim = bank_statement::default_limits();
@@ -17,7 +17,7 @@ fn test_qif_item_lists() {
     var lns: bank_statement::QifField[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
     var prs: bank_statement::QifPrice[>..] = [];
-    let f = bank_statement::parse_qif_lists(common_2::LISTS_TEXT, lim, ropts, items, buds, lns, ext, prs);
+    let f = bank_statement::parse_qif_lists(sample_texts::LISTS_TEXT, lim, ropts, items, buds, lns, ext, prs);
     if f.kind != 0 { print("FAIL lists ", bank_statement::kind_name(f.kind), " ", f.line, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(items.len == 7 && prs.len == 2);
@@ -54,7 +54,7 @@ fn test_qif_item_lists() {
     var ex2: bank_statement::QifField[>..] = [];
     var xbuf35: u8[>..] = [];
     var xbuf35_pre: u8[>..] = [];
-    assert(bank_statement::parse_qif(common_2::LISTS_TEXT, lim, ropts, recs, spl, ex2, xbuf35_pre).kind == 0);
+    assert(bank_statement::parse_qif(sample_texts::LISTS_TEXT, lim, ropts, recs, spl, ex2, xbuf35_pre).kind == 0);
     // Write and read back to the same values.
     var out: u8[>..] = [];
     let wopts = bank_statement::QifWriteOptions { date_order: 0 };

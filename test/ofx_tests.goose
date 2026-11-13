@@ -7,8 +7,8 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
-import common_2;
+import statement_checks;
+import sample_texts;
 
 fn test_ofx_v1() {
     let lim = bank_statement::default_limits();
@@ -18,7 +18,7 @@ fn test_ofx_v1() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_ofx(common_2::OFX_V1, lim, opts, sts, ens, bals, notes, buf);
+    let f = bank_statement::parse_ofx(sample_texts::OFX_V1, lim, opts, sts, ens, bals, notes, buf);
     if f.kind != 0 { print("FAIL ofx v1 ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     // One statement with the account and the entries.
@@ -58,7 +58,7 @@ fn test_ofx_v2() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_ofx(common_2::OFX_V2, lim, opts, sts, ens, bals, notes, buf);
+    let f = bank_statement::parse_ofx(sample_texts::OFX_V2, lim, opts, sts, ens, bals, notes, buf);
     if f.kind != 0 { print("FAIL ofx v2 ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(sts.len == 1 && sts[0].reference == "R2");
@@ -80,7 +80,7 @@ fn test_ofx_invest() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_ofx(common_2::OFX_INV, lim, opts, sts, ens, bals, notes, buf);
+    let f = bank_statement::parse_ofx(sample_texts::OFX_INV, lim, opts, sts, ens, bals, notes, buf);
     if f.kind != 0 { print("FAIL ofx inv ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(sts.len == 1);
@@ -108,23 +108,23 @@ fn test_ofx_invest() {
 
 fn test_ofx_dates() {
     // The date forms of the spec.
-    assert(common::ofx_date_fault("20200101120000") == 0);
-    assert(common::ofx_date_fault("2020010112") == 0);
-    assert(common::ofx_date_fault("20200101") == 0);
-    assert(common::ofx_date_fault("20200101120000.000") == 0);
-    assert(common::ofx_date_fault("20200101120000[-5:EST]") == 0);
-    assert(common::ofx_date_fault("20200101120000[-5.30:IST]") == 0);
-    assert(common::ofx_date_fault("20200101120000[0:GMT]") == 0);
+    assert(statement_checks::ofx_date_fault("20200101120000") == 0);
+    assert(statement_checks::ofx_date_fault("2020010112") == 0);
+    assert(statement_checks::ofx_date_fault("20200101") == 0);
+    assert(statement_checks::ofx_date_fault("20200101120000.000") == 0);
+    assert(statement_checks::ofx_date_fault("20200101120000[-5:EST]") == 0);
+    assert(statement_checks::ofx_date_fault("20200101120000[-5.30:IST]") == 0);
+    assert(statement_checks::ofx_date_fault("20200101120000[0:GMT]") == 0);
     // The bad dates.
-    assert(common::ofx_date_fault("2020010112000") == 6);
-    assert(common::ofx_date_fault("20201301120000") == 6);
-    assert(common::ofx_date_fault("20200230120000") == 6);
-    assert(common::ofx_date_fault("20200101120000[99:EST]") == 6);
+    assert(statement_checks::ofx_date_fault("2020010112000") == 6);
+    assert(statement_checks::ofx_date_fault("20201301120000") == 6);
+    assert(statement_checks::ofx_date_fault("20200230120000") == 6);
+    assert(statement_checks::ofx_date_fault("20200101120000[99:EST]") == 6);
     // The date of the entry holds the day.
     let lim = bank_statement::default_limits();
     let opts = bank_statement::OfxOptions { .. };
     var text: u8[>..] = [];
-    common::build_ofx_date("20200101120000[-5:EST]", text);
+    statement_checks::build_ofx_date("20200101120000[-5:EST]", text);
     var sts: bank_statement::Statement[>..] = [];
     var ens: bank_statement::Entry[>..] = [];
     var bals: bank_statement::Balance[>..] = [];
@@ -138,24 +138,24 @@ fn test_ofx_dates() {
 
 fn test_ofx_faults() {
     // A file that is no OFX file.
-    common::run_ofx("hello", 2);
+    statement_checks::run_ofx("hello", 2);
     // A header with a bad field.
-    common::run_ofx("OFXHEADER:999\nDATA:OFXSGML\nVERSION:102\n\n<OFX></OFX>", 2);
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:999\n\n<OFX></OFX>", 2);
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\nWHAT:1\n\n<OFX></OFX>", 2);
+    statement_checks::run_ofx("OFXHEADER:999\nDATA:OFXSGML\nVERSION:102\n\n<OFX></OFX>", 2);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:999\n\n<OFX></OFX>", 2);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\nWHAT:1\n\n<OFX></OFX>", 2);
     // A root that is not OFX.
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OTHER></OTHER>", 2);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OTHER></OTHER>", 2);
     // A close tag that does not match.
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><A></B></OFX>", 2);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><A></B></OFX>", 2);
     // An aggregate that is not closed.
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><A>", 2);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><A>", 2);
     // A doctype and an entity.
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<!DOCTYPE OFX><OFX></OFX>", 2);
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<!ENTITY x \"y\"><OFX></OFX>", 2);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<!DOCTYPE OFX><OFX></OFX>", 2);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<!ENTITY x \"y\"><OFX></OFX>", 2);
     // A currency that is not known.
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>XXX</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>", 4);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>XXX</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>", 4);
     // A bad amount.
-    common::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD<BANKTRANLIST><STMTTRN><TRNTYPE>CHECK<TRNAMT>1e5</STMTTRN></BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>", 4);
+    statement_checks::run_ofx("OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS><CURDEF>USD<BANKTRANLIST><STMTTRN><TRNTYPE>CHECK<TRNAMT>1e5</STMTTRN></BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>", 4);
     // A file above the input limit.
     var lim = bank_statement::default_limits();
     lim.max_input = 20;
@@ -165,7 +165,7 @@ fn test_ofx_faults() {
     var notes: bank_statement::Note[>..] = [];
     var buf: u8[>..] = [];
     let opts = bank_statement::OfxOptions { .. };
-    let f = bank_statement::parse_ofx(common_2::OFX_V1, lim, opts, sts, ens, bals, notes, buf);
+    let f = bank_statement::parse_ofx(sample_texts::OFX_V1, lim, opts, sts, ens, bals, notes, buf);
     assert(f.kind == 1);
 }
 
@@ -224,7 +224,7 @@ fn test_ofx_seclist() {
     var secs: bank_statement::OfxSecurity[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_ofx_securities(common_2::SECLIST_SGML, lim, secs, notes, buf);
+    let f = bank_statement::parse_ofx_securities(sample_texts::SECLIST_SGML, lim, secs, notes, buf);
     if f.kind != 0 { print("FAIL seclist ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(secs.len == 3);
@@ -244,18 +244,18 @@ fn test_ofx_seclist() {
     var s2: bank_statement::OfxSecurity[>..] = [];
     var n2: bank_statement::Note[>..] = [];
     var b2: u8[>..] = [];
-    assert(bank_statement::parse_ofx_securities(common_2::OFX_EXTRA, lim, s2, n2, b2).kind == 0 && s2.len == 0);
+    assert(bank_statement::parse_ofx_securities(sample_texts::OFX_EXTRA, lim, s2, n2, b2).kind == 0 && s2.len == 0);
     // A bad price is a fault; a small record limit is a fault.
     var s3: bank_statement::OfxSecurity[>..] = [];
     var n3: bank_statement::Note[>..] = [];
     var b3: u8[>..] = [];
     var small = bank_statement::default_limits();
     small.max_records = 2;
-    assert(bank_statement::parse_ofx_securities(common_2::SECLIST_SGML, small, s3, n3, b3).kind == bank_statement::F_LIMIT);
+    assert(bank_statement::parse_ofx_securities(sample_texts::SECLIST_SGML, small, s3, n3, b3).kind == bank_statement::F_LIMIT);
     // The writer writes the list back and the reader reads the same
     // securities.
     var out: u8[>..] = [];
-    let wf = bank_statement::write_ofx_securities(secs, notes, common::ofx_wopts(102), lim, out);
+    let wf = bank_statement::write_ofx_securities(secs, notes, statement_checks::ofx_wopts(102), lim, out);
     if wf.kind != 0 { print("FAIL seclist write ", bank_statement::kind_name(wf.kind), " ", wf.tag, " ", wf.detail, "\n"); }
     assert(wf.kind == 0);
     var secs4: bank_statement::OfxSecurity[>..] = [];
@@ -283,7 +283,7 @@ fn test_ofx_seclist() {
     }
     // The writer accepts one form of the list too.
     var out2: u8[>..] = [];
-    assert(bank_statement::write_ofx_securities(secs, notes, common::ofx_wopts(211), lim, out2).kind == 0);
+    assert(bank_statement::write_ofx_securities(secs, notes, statement_checks::ofx_wopts(211), lim, out2).kind == 0);
     assert(find(out2, "</SECNAME>") > 0);
     // Refusals: an unknown kind, an empty id, a long currency, a price
     // with no decimal form.
@@ -296,20 +296,20 @@ fn test_ofx_seclist() {
     var o3: u8[>..] = [];
     var one: bank_statement::OfxSecurity[>..] = [bad];
     var no: bank_statement::Note[>..] = [];
-    assert(bank_statement::write_ofx_securities(one, no, common::ofx_wopts(102), lim, o3).kind == bank_statement::F_UNKNOWN_TAG);
+    assert(bank_statement::write_ofx_securities(one, no, statement_checks::ofx_wopts(102), lim, o3).kind == bank_statement::F_UNKNOWN_TAG);
     bad.kind = "STOCKINFO";
     bad.id = "";
     var one2: bank_statement::OfxSecurity[>..] = [bad];
-    assert(bank_statement::write_ofx_securities(one2, no, common::ofx_wopts(102), lim, o3).kind == bank_statement::F_SYNTAX);
+    assert(bank_statement::write_ofx_securities(one2, no, statement_checks::ofx_wopts(102), lim, o3).kind == bank_statement::F_SYNTAX);
     bad.id = "1";
     bad.currency = "EURO";
     var one3: bank_statement::OfxSecurity[>..] = [bad];
-    assert(bank_statement::write_ofx_securities(one3, no, common::ofx_wopts(102), lim, o3).kind == bank_statement::F_SYNTAX);
+    assert(bank_statement::write_ofx_securities(one3, no, statement_checks::ofx_wopts(102), lim, o3).kind == bank_statement::F_SYNTAX);
     bad.currency = "";
     bad.has_price = true;
     bad.price = bank_statement::Rational { num: 1, den: 3 };
     var one4: bank_statement::OfxSecurity[>..] = [bad];
-    assert(bank_statement::write_ofx_securities(one4, no, common::ofx_wopts(102), lim, o3).kind == bank_statement::F_AMOUNT);
+    assert(bank_statement::write_ofx_securities(one4, no, statement_checks::ofx_wopts(102), lim, o3).kind == bank_statement::F_AMOUNT);
 }
 
 fn test_ofx_profile() {
@@ -319,7 +319,7 @@ fn test_ofx_profile() {
     var ms: bank_statement::OfxMsgSet[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_ofx_profile(common_2::PROFILE_SGML, lim, pr, sn, ms, notes, buf);
+    let f = bank_statement::parse_ofx_profile(sample_texts::PROFILE_SGML, lim, pr, sn, ms, notes, buf);
     if f.kind != 0 { print("FAIL profile ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(pr.found && pr.name == "Test Bank & Trust" && pr.addr1 == "1 Main St" && pr.city == "Springfield");
@@ -339,14 +339,14 @@ fn test_ofx_profile() {
     var m2: bank_statement::OfxMsgSet[>..] = [];
     var n2: bank_statement::Note[>..] = [];
     var b2: u8[>..] = [];
-    assert(bank_statement::parse_ofx_profile(common_2::OFX_EXTRA, lim, p2, s2, m2, n2, b2).kind == 0 && !p2.found);
+    assert(bank_statement::parse_ofx_profile(sample_texts::OFX_EXTRA, lim, p2, s2, m2, n2, b2).kind == 0 && !p2.found);
     // A flag that is not Y or N is a fault.
-    let at = find(common_2::PROFILE_SGML, "<CASESEN>Y");
+    let at = find(sample_texts::PROFILE_SGML, "<CASESEN>Y");
     assert(at > 0);
     var tb: u8[>..] = [];
-    bank_statement::put(tb, common_2::PROFILE_SGML[..at]);
+    bank_statement::put(tb, sample_texts::PROFILE_SGML[..at]);
     bank_statement::put(tb, "<CASESEN>maybe");
-    bank_statement::put(tb, common_2::PROFILE_SGML[at + 10..]);
+    bank_statement::put(tb, sample_texts::PROFILE_SGML[at + 10..]);
     let bad: const u8[:] = tb;
     var s3: bank_statement::OfxSignonInfo[>..] = [];
     var m3: bank_statement::OfxMsgSet[>..] = [];
@@ -362,7 +362,7 @@ fn test_ofx_profile() {
     var n4: bank_statement::Note[>..] = [];
     var b4: u8[>..] = [];
     var p4 = pr;
-    assert(bank_statement::parse_ofx_profile(common_2::PROFILE_SGML, small, p4, s4, m4, n4, b4).kind == bank_statement::F_LIMIT);
+    assert(bank_statement::parse_ofx_profile(sample_texts::PROFILE_SGML, small, p4, s4, m4, n4, b4).kind == bank_statement::F_LIMIT);
 }
 
 fn test_ofx_charset() {
@@ -426,24 +426,24 @@ fn test_ofx_tree_repeats() {
     let lim = bank_statement::default_limits();
     // Two transactions in one list. The list may hold many.
     var two: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "SIGNONMSGSRSV1", ""), common::tree_node(1, "SONRS", ""), common::tree_node(2, "STATUS", ""),
-        common::tree_node(3, "CODE", "0"), common::tree_node(3, "SEVERITY", "INFO"),
-        common::tree_node(2, "DTSERVER", "20200101120000"), common::tree_node(2, "LANGUAGE", "ENG"),
-        common::tree_node(0, "BANKMSGSRSV1", ""), common::tree_node(1, "STMTTRNRS", ""), common::tree_node(2, "TRNUID", "T1"),
-        common::tree_node(2, "STATUS", ""), common::tree_node(3, "CODE", "0"), common::tree_node(3, "SEVERITY", "INFO"),
-        common::tree_node(2, "STMTRS", ""), common::tree_node(3, "CURDEF", "USD"),
-        common::tree_node(3, "BANKACCTFROM", ""), common::tree_node(4, "BANKID", "987654321"),
-        common::tree_node(4, "ACCTID", "12345"), common::tree_node(4, "ACCTTYPE", "CHECKING"),
-        common::tree_node(3, "BANKTRANLIST", ""), common::tree_node(4, "DTSTART", "20200101000000"),
-        common::tree_node(4, "DTEND", "20200102000000"),
-        common::tree_node(4, "STMTTRN", ""), common::tree_node(5, "TRNTYPE", "DEBIT"), common::tree_node(5, "DTPOSTED", "20200101000000"),
-        common::tree_node(5, "TRNAMT", "-1.00"), common::tree_node(5, "FITID", "1"),
-        common::tree_node(4, "STMTTRN", ""), common::tree_node(5, "TRNTYPE", "DEBIT"), common::tree_node(5, "DTPOSTED", "20200101000000"),
-        common::tree_node(5, "TRNAMT", "-2.00"), common::tree_node(5, "FITID", "2"),
-        common::tree_node(3, "LEDGERBAL", ""), common::tree_node(4, "BALAMT", "1.00"), common::tree_node(4, "DTASOF", "20200102000000"),
+        statement_checks::tree_node(0, "SIGNONMSGSRSV1", ""), statement_checks::tree_node(1, "SONRS", ""), statement_checks::tree_node(2, "STATUS", ""),
+        statement_checks::tree_node(3, "CODE", "0"), statement_checks::tree_node(3, "SEVERITY", "INFO"),
+        statement_checks::tree_node(2, "DTSERVER", "20200101120000"), statement_checks::tree_node(2, "LANGUAGE", "ENG"),
+        statement_checks::tree_node(0, "BANKMSGSRSV1", ""), statement_checks::tree_node(1, "STMTTRNRS", ""), statement_checks::tree_node(2, "TRNUID", "T1"),
+        statement_checks::tree_node(2, "STATUS", ""), statement_checks::tree_node(3, "CODE", "0"), statement_checks::tree_node(3, "SEVERITY", "INFO"),
+        statement_checks::tree_node(2, "STMTRS", ""), statement_checks::tree_node(3, "CURDEF", "USD"),
+        statement_checks::tree_node(3, "BANKACCTFROM", ""), statement_checks::tree_node(4, "BANKID", "987654321"),
+        statement_checks::tree_node(4, "ACCTID", "12345"), statement_checks::tree_node(4, "ACCTTYPE", "CHECKING"),
+        statement_checks::tree_node(3, "BANKTRANLIST", ""), statement_checks::tree_node(4, "DTSTART", "20200101000000"),
+        statement_checks::tree_node(4, "DTEND", "20200102000000"),
+        statement_checks::tree_node(4, "STMTTRN", ""), statement_checks::tree_node(5, "TRNTYPE", "DEBIT"), statement_checks::tree_node(5, "DTPOSTED", "20200101000000"),
+        statement_checks::tree_node(5, "TRNAMT", "-1.00"), statement_checks::tree_node(5, "FITID", "1"),
+        statement_checks::tree_node(4, "STMTTRN", ""), statement_checks::tree_node(5, "TRNTYPE", "DEBIT"), statement_checks::tree_node(5, "DTPOSTED", "20200101000000"),
+        statement_checks::tree_node(5, "TRNAMT", "-2.00"), statement_checks::tree_node(5, "FITID", "2"),
+        statement_checks::tree_node(3, "LEDGERBAL", ""), statement_checks::tree_node(4, "BALAMT", "1.00"), statement_checks::tree_node(4, "DTASOF", "20200102000000"),
     ];
     var out: u8[>..] = [];
-    let w = bank_statement::write_ofx_tree(two, common::ofx_wopts(102), lim, out);
+    let w = bank_statement::write_ofx_tree(two, statement_checks::ofx_wopts(102), lim, out);
     if w.kind != 0 { print("FAIL repeat ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
     assert(w.kind == 0);
     // The output holds both transactions.
@@ -454,36 +454,36 @@ fn test_ofx_tree_repeats() {
     // Two aggregates that exclude each other fault. The specification
     // names one of them in the aggregate of a transaction.
     var excl: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "SIGNONMSGSRSV1", ""), common::tree_node(1, "SONRS", ""), common::tree_node(2, "STATUS", ""),
-        common::tree_node(3, "CODE", "0"), common::tree_node(3, "SEVERITY", "INFO"),
-        common::tree_node(2, "DTSERVER", "20200101120000"), common::tree_node(2, "LANGUAGE", "ENG"),
-        common::tree_node(0, "BANKMSGSRSV1", ""), common::tree_node(1, "STMTTRNRS", ""), common::tree_node(2, "TRNUID", "T1"),
-        common::tree_node(2, "STATUS", ""), common::tree_node(3, "CODE", "0"), common::tree_node(3, "SEVERITY", "INFO"),
-        common::tree_node(2, "STMTRS", ""), common::tree_node(3, "CURDEF", "USD"),
-        common::tree_node(3, "BANKACCTFROM", ""), common::tree_node(4, "BANKID", "987654321"),
-        common::tree_node(4, "ACCTID", "12345"), common::tree_node(4, "ACCTTYPE", "CHECKING"),
-        common::tree_node(3, "BANKTRANLIST", ""), common::tree_node(4, "DTSTART", "20200101000000"),
-        common::tree_node(4, "DTEND", "20200102000000"),
-        common::tree_node(4, "STMTTRN", ""), common::tree_node(5, "TRNTYPE", "DEBIT"), common::tree_node(5, "DTPOSTED", "20200101000000"),
-        common::tree_node(5, "TRNAMT", "-1.00"), common::tree_node(5, "FITID", "1"),
-        common::tree_node(5, "BANKACCTTO", ""), common::tree_node(6, "BANKID", "123456789"),
-        common::tree_node(6, "ACCTID", "54321"), common::tree_node(6, "ACCTTYPE", "SAVINGS"),
-        common::tree_node(5, "CCACCTTO", ""), common::tree_node(6, "ACCTID", "99999"),
-        common::tree_node(3, "LEDGERBAL", ""), common::tree_node(4, "BALAMT", "1.00"), common::tree_node(4, "DTASOF", "20200102000000"),
+        statement_checks::tree_node(0, "SIGNONMSGSRSV1", ""), statement_checks::tree_node(1, "SONRS", ""), statement_checks::tree_node(2, "STATUS", ""),
+        statement_checks::tree_node(3, "CODE", "0"), statement_checks::tree_node(3, "SEVERITY", "INFO"),
+        statement_checks::tree_node(2, "DTSERVER", "20200101120000"), statement_checks::tree_node(2, "LANGUAGE", "ENG"),
+        statement_checks::tree_node(0, "BANKMSGSRSV1", ""), statement_checks::tree_node(1, "STMTTRNRS", ""), statement_checks::tree_node(2, "TRNUID", "T1"),
+        statement_checks::tree_node(2, "STATUS", ""), statement_checks::tree_node(3, "CODE", "0"), statement_checks::tree_node(3, "SEVERITY", "INFO"),
+        statement_checks::tree_node(2, "STMTRS", ""), statement_checks::tree_node(3, "CURDEF", "USD"),
+        statement_checks::tree_node(3, "BANKACCTFROM", ""), statement_checks::tree_node(4, "BANKID", "987654321"),
+        statement_checks::tree_node(4, "ACCTID", "12345"), statement_checks::tree_node(4, "ACCTTYPE", "CHECKING"),
+        statement_checks::tree_node(3, "BANKTRANLIST", ""), statement_checks::tree_node(4, "DTSTART", "20200101000000"),
+        statement_checks::tree_node(4, "DTEND", "20200102000000"),
+        statement_checks::tree_node(4, "STMTTRN", ""), statement_checks::tree_node(5, "TRNTYPE", "DEBIT"), statement_checks::tree_node(5, "DTPOSTED", "20200101000000"),
+        statement_checks::tree_node(5, "TRNAMT", "-1.00"), statement_checks::tree_node(5, "FITID", "1"),
+        statement_checks::tree_node(5, "BANKACCTTO", ""), statement_checks::tree_node(6, "BANKID", "123456789"),
+        statement_checks::tree_node(6, "ACCTID", "54321"), statement_checks::tree_node(6, "ACCTTYPE", "SAVINGS"),
+        statement_checks::tree_node(5, "CCACCTTO", ""), statement_checks::tree_node(6, "ACCTID", "99999"),
+        statement_checks::tree_node(3, "LEDGERBAL", ""), statement_checks::tree_node(4, "BALAMT", "1.00"), statement_checks::tree_node(4, "DTASOF", "20200102000000"),
     ];
     var o3: u8[>..] = [];
-    let w3 = bank_statement::write_ofx_tree(excl, common::ofx_wopts(102), lim, o3);
+    let w3 = bank_statement::write_ofx_tree(excl, statement_checks::ofx_wopts(102), lim, o3);
     assert(w3.kind == bank_statement::F_SYNTAX);
     assert(w3.detail == "two aggregates that exclude each other stand in one aggregate");
     // An element that may come only once faults when it comes twice.
     var dup: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "SIGNONMSGSRSV1", ""), common::tree_node(1, "SONRS", ""), common::tree_node(2, "STATUS", ""),
-        common::tree_node(3, "CODE", "0"), common::tree_node(3, "SEVERITY", "INFO"),
-        common::tree_node(2, "DTSERVER", "20200101120000"), common::tree_node(2, "LANGUAGE", "ENG"),
-        common::tree_node(2, "LANGUAGE", "FRA"),
+        statement_checks::tree_node(0, "SIGNONMSGSRSV1", ""), statement_checks::tree_node(1, "SONRS", ""), statement_checks::tree_node(2, "STATUS", ""),
+        statement_checks::tree_node(3, "CODE", "0"), statement_checks::tree_node(3, "SEVERITY", "INFO"),
+        statement_checks::tree_node(2, "DTSERVER", "20200101120000"), statement_checks::tree_node(2, "LANGUAGE", "ENG"),
+        statement_checks::tree_node(2, "LANGUAGE", "FRA"),
     ];
     var o2: u8[>..] = [];
-    let w2 = bank_statement::write_ofx_tree(dup, common::ofx_wopts(102), lim, o2);
+    let w2 = bank_statement::write_ofx_tree(dup, statement_checks::ofx_wopts(102), lim, o2);
     assert(w2.kind == bank_statement::F_SYNTAX);
     assert(w2.detail == "the element may come only once in this aggregate");
 }
@@ -492,7 +492,7 @@ fn test_ofx_tree() {
     let lim = bank_statement::default_limits();
     var tree: bank_statement::OfxNode[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_ofx_tree(common_2::OFX_INV, lim, tree, buf);
+    let f = bank_statement::parse_ofx_tree(sample_texts::OFX_INV, lim, tree, buf);
     if f.kind != 0 { print("FAIL tree ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(tree.len > 20 && tree[0].depth == 0 && tree[0].name == "INVSTMTMSGSRSV1" && tree[0].text == "");
@@ -503,11 +503,11 @@ fn test_ofx_tree() {
     var base_n: bank_statement::Note[>..] = [];
     var base_u: u8[>..] = [];
     let ropts = bank_statement::OfxOptions { .. };
-    assert(bank_statement::parse_ofx(common_2::OFX_INV, lim, ropts, base_s, base_e, base_b, base_n, base_u).kind == 0);
+    assert(bank_statement::parse_ofx(sample_texts::OFX_INV, lim, ropts, base_s, base_e, base_b, base_n, base_u).kind == 0);
     var v = 0;
     while v < 3 {
-        var o = common::ofx_wopts(102);
-        if v == 1 { o = common::ofx_wopts(211); o.indent = true; }
+        var o = statement_checks::ofx_wopts(102);
+        if v == 1 { o = statement_checks::ofx_wopts(211); o.indent = true; }
         if v == 2 { o.close_leaves = true; }
         var out: u8[>..] = [];
         let w = bank_statement::write_ofx_tree(tree, o, lim, out);
@@ -540,12 +540,12 @@ fn test_ofx_tree() {
     }
     // A sign-on request with a text that holds markup: the text is escaped.
     var req: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "SIGNONMSGSRQV1", ""), common::tree_node(1, "SONRQ", ""), common::tree_node(2, "DTCLIENT", "20200101"),
-        common::tree_node(2, "USERID", "a<b>&c"), common::tree_node(2, "LANGUAGE", "ENG"),
-        common::tree_node(2, "APPID", "GOOSE"), common::tree_node(2, "APPVER", "2600"),
+        statement_checks::tree_node(0, "SIGNONMSGSRQV1", ""), statement_checks::tree_node(1, "SONRQ", ""), statement_checks::tree_node(2, "DTCLIENT", "20200101"),
+        statement_checks::tree_node(2, "USERID", "a<b>&c"), statement_checks::tree_node(2, "LANGUAGE", "ENG"),
+        statement_checks::tree_node(2, "APPID", "GOOSE"), statement_checks::tree_node(2, "APPVER", "2600"),
     ];
     var ro: u8[>..] = [];
-    assert(bank_statement::write_ofx_tree(req, common::ofx_wopts(211), lim, ro).kind == 0);
+    assert(bank_statement::write_ofx_tree(req, statement_checks::ofx_wopts(211), lim, ro).kind == 0);
     assert(find(ro, "a&lt;b&gt;&amp;c") > 0 && find(ro, "a<b>") < 0);
     var back: bank_statement::OfxNode[>..] = [];
     var rb: u8[>..] = [];
@@ -553,52 +553,52 @@ fn test_ofx_tree() {
     assert(back.len == 7 && back[3].text == "a<b>&c");
     // Refusals of the loose writer: a bad name, a depth jump, a text in
     // an aggregate, a control byte, an empty leaf.
-    var bad1: bank_statement::OfxNode[>..] = [common::tree_node(0, "a b", "x")];
-    assert(common::run_tree_write(bad1, common::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
-    var bad2: bank_statement::OfxNode[>..] = [common::tree_node(0, "A", ""), common::tree_node(2, "B", "x")];
-    assert(common::run_tree_write(bad2, common::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
-    var bad3: bank_statement::OfxNode[>..] = [common::tree_node(0, "A", "text"), common::tree_node(1, "B", "x")];
-    assert(common::run_tree_write(bad3, common::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
-    var bad4: bank_statement::OfxNode[>..] = [common::tree_node(0, "A", "x\x01y")];
-    assert(common::run_tree_write(bad4, common::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
-    var bad5: bank_statement::OfxNode[>..] = [common::tree_node(0, "MEMO", "")];
-    assert(common::run_tree_write(bad5, common::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
-    var bad6: bank_statement::OfxNode[>..] = [common::tree_node(1, "A", "x")];
-    assert(common::run_tree_write(bad6, common::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
+    var bad1: bank_statement::OfxNode[>..] = [statement_checks::tree_node(0, "a b", "x")];
+    assert(statement_checks::run_tree_write(bad1, statement_checks::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
+    var bad2: bank_statement::OfxNode[>..] = [statement_checks::tree_node(0, "A", ""), statement_checks::tree_node(2, "B", "x")];
+    assert(statement_checks::run_tree_write(bad2, statement_checks::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
+    var bad3: bank_statement::OfxNode[>..] = [statement_checks::tree_node(0, "A", "text"), statement_checks::tree_node(1, "B", "x")];
+    assert(statement_checks::run_tree_write(bad3, statement_checks::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
+    var bad4: bank_statement::OfxNode[>..] = [statement_checks::tree_node(0, "A", "x\x01y")];
+    assert(statement_checks::run_tree_write(bad4, statement_checks::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
+    var bad5: bank_statement::OfxNode[>..] = [statement_checks::tree_node(0, "MEMO", "")];
+    assert(statement_checks::run_tree_write(bad5, statement_checks::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
+    var bad6: bank_statement::OfxNode[>..] = [statement_checks::tree_node(1, "A", "x")];
+    assert(statement_checks::run_tree_write(bad6, statement_checks::ofx_wopts_loose()) == bank_statement::F_SYNTAX);
     // Refusals of the rule check: an unknown element, a missing
     // required element, a wrong order, a bad flag value, an unknown tag
     // inside an aggregate.
-    var r1: bank_statement::OfxNode[>..] = [common::tree_node(0, "NOTREAL", "x")];
-    assert(common::run_tree_write(r1, common::ofx_wopts(102)) == bank_statement::F_UNKNOWN_TAG);
+    var r1: bank_statement::OfxNode[>..] = [statement_checks::tree_node(0, "NOTREAL", "x")];
+    assert(statement_checks::run_tree_write(r1, statement_checks::ofx_wopts(102)) == bank_statement::F_UNKNOWN_TAG);
     var r2: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "SIGNONMSGSRQV1", ""), common::tree_node(1, "SONRQ", ""), common::tree_node(2, "DTCLIENT", "20200101"),
+        statement_checks::tree_node(0, "SIGNONMSGSRQV1", ""), statement_checks::tree_node(1, "SONRQ", ""), statement_checks::tree_node(2, "DTCLIENT", "20200101"),
     ];
-    assert(common::run_tree_write(r2, common::ofx_wopts(102)) == bank_statement::F_SYNTAX);
+    assert(statement_checks::run_tree_write(r2, statement_checks::ofx_wopts(102)) == bank_statement::F_SYNTAX);
     var r3: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "SIGNONMSGSRQV1", ""), common::tree_node(1, "SONRQ", ""), common::tree_node(2, "USERID", "alice"),
-        common::tree_node(2, "DTCLIENT", "20200101"), common::tree_node(2, "LANGUAGE", "ENG"),
-        common::tree_node(2, "APPID", "GOOSE"), common::tree_node(2, "APPVER", "2600"),
+        statement_checks::tree_node(0, "SIGNONMSGSRQV1", ""), statement_checks::tree_node(1, "SONRQ", ""), statement_checks::tree_node(2, "USERID", "alice"),
+        statement_checks::tree_node(2, "DTCLIENT", "20200101"), statement_checks::tree_node(2, "LANGUAGE", "ENG"),
+        statement_checks::tree_node(2, "APPID", "GOOSE"), statement_checks::tree_node(2, "APPVER", "2600"),
     ];
-    assert(common::run_tree_write(r3, common::ofx_wopts(102)) == bank_statement::F_SYNTAX);
+    assert(statement_checks::run_tree_write(r3, statement_checks::ofx_wopts(102)) == bank_statement::F_SYNTAX);
     var r4: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "SIGNONMSGSRQV1", ""), common::tree_node(1, "SONRQ", ""), common::tree_node(2, "DTCLIENT", "20200101"),
-        common::tree_node(2, "USERID", "alice"), common::tree_node(2, "GENUSERKEY", "MAYBE"),
-        common::tree_node(2, "LANGUAGE", "ENG"),
-        common::tree_node(2, "APPID", "GOOSE"), common::tree_node(2, "APPVER", "2600"),
+        statement_checks::tree_node(0, "SIGNONMSGSRQV1", ""), statement_checks::tree_node(1, "SONRQ", ""), statement_checks::tree_node(2, "DTCLIENT", "20200101"),
+        statement_checks::tree_node(2, "USERID", "alice"), statement_checks::tree_node(2, "GENUSERKEY", "MAYBE"),
+        statement_checks::tree_node(2, "LANGUAGE", "ENG"),
+        statement_checks::tree_node(2, "APPID", "GOOSE"), statement_checks::tree_node(2, "APPVER", "2600"),
     ];
-    assert(common::run_tree_write(r4, common::ofx_wopts(102)) == bank_statement::F_SYNTAX);
+    assert(statement_checks::run_tree_write(r4, statement_checks::ofx_wopts(102)) == bank_statement::F_SYNTAX);
     var r5: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "SIGNONMSGSRQV1", ""), common::tree_node(1, "SONRQ", ""), common::tree_node(2, "DTCLIENT", "20200101"),
-        common::tree_node(2, "USERID", "alice"), common::tree_node(2, "LANGUAGE", "ENG"),
-        common::tree_node(2, "APPID", "GOOSE"), common::tree_node(2, "APPVER", "2600"),
-        common::tree_node(2, "NOTINSONRQ", "x"),
+        statement_checks::tree_node(0, "SIGNONMSGSRQV1", ""), statement_checks::tree_node(1, "SONRQ", ""), statement_checks::tree_node(2, "DTCLIENT", "20200101"),
+        statement_checks::tree_node(2, "USERID", "alice"), statement_checks::tree_node(2, "LANGUAGE", "ENG"),
+        statement_checks::tree_node(2, "APPID", "GOOSE"), statement_checks::tree_node(2, "APPVER", "2600"),
+        statement_checks::tree_node(2, "NOTINSONRQ", "x"),
     ];
-    assert(common::run_tree_write(r5, common::ofx_wopts(102)) == bank_statement::F_UNKNOWN_TAG);
+    assert(statement_checks::run_tree_write(r5, statement_checks::ofx_wopts(102)) == bank_statement::F_UNKNOWN_TAG);
     // A private extension at the start of X passes the rule check.
     var px: bank_statement::OfxNode[>..] = [
-        common::tree_node(0, "XTENSION", ""), common::tree_node(1, "XFIELD", "free"),
+        statement_checks::tree_node(0, "XTENSION", ""), statement_checks::tree_node(1, "XFIELD", "free"),
     ];
-    assert(common::run_tree_write(px, common::ofx_wopts(102)) == 0);
+    assert(statement_checks::run_tree_write(px, statement_checks::ofx_wopts(102)) == 0);
 }
 
 fn test_ofx_extra() {
@@ -609,7 +609,7 @@ fn test_ofx_extra() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_ofx(common_2::OFX_EXTRA, lim, ropts, sts, ens, bals, notes, buf);
+    let f = bank_statement::parse_ofx(sample_texts::OFX_EXTRA, lim, ropts, sts, ens, bals, notes, buf);
     if f.kind != 0 { print("FAIL ofx extra ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(ens.len == 2);
@@ -630,8 +630,8 @@ fn test_ofx_extra() {
     // Round trip in both forms.
     var v = 0;
     while v < 2 {
-        var o = common::ofx_wopts(102);
-        if v == 1 { o = common::ofx_wopts(203); o.indent = true; }
+        var o = statement_checks::ofx_wopts(102);
+        if v == 1 { o = statement_checks::ofx_wopts(203); o.indent = true; }
         var out: u8[>..] = [];
         let w = bank_statement::write_ofx(sts, ens, notes, o, lim, out);
         if w.kind != 0 { print("FAIL write extra ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
@@ -646,13 +646,13 @@ fn test_ofx_extra() {
         if g.kind != 0 { print("FAIL reread extra ", bank_statement::kind_name(g.kind), " ", g.tag, " ", g.detail, "\n"); }
         assert(g.kind == 0);
         assert(e2.len == 2);
-        common::extra_equal(ens[0], e2[0]);
-        common::extra_equal(ens[1], e2[1]);
+        statement_checks::extra_equal(ens[0], e2[0]);
+        statement_checks::extra_equal(ens[1], e2[1]);
         assert(e2[0].amount.currency == "JPY" && e2[0].amount.minor == -5000);
         v += 1;
     }
     // Refusals.
-    let wo = common::ofx_wopts(102);
+    let wo = statement_checks::ofx_wopts(102);
     ens[0].ofx.correct_action = "";
     var r1: u8[>..] = [];
     assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r1).kind == bank_statement::F_SYNTAX);
@@ -683,14 +683,14 @@ fn test_ofx_extra() {
 }
 
 fn test_ofx_extra_faults() {
-    assert(common::ofx_kind("") == 0);
-    assert(common::ofx_kind("<CORRECTACTION>MAYBE") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<DTUSER>2020xx01") == bank_statement::F_DATE);
-    assert(common::ofx_kind("<NAME>A<PAYEE><NAME>B</PAYEE>") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<CURRENCY><CURRATE>1<CURSYM>EUR</CURRENCY><ORIGCURRENCY><CURRATE>1<CURSYM>EUR</ORIGCURRENCY>") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<CURRENCY><CURRATE>0<CURSYM>EUR</CURRENCY>") == bank_statement::F_AMOUNT);
-    assert(common::ofx_kind("<CURRENCY><CURRATE>1<CURSYM>ZZZ</CURRENCY>") == bank_statement::F_AMOUNT);
-    assert(common::ofx_kind("<CURRENCY><CURSYM>EUR</CURRENCY>") == bank_statement::F_AMOUNT);
+    assert(statement_checks::ofx_kind("") == 0);
+    assert(statement_checks::ofx_kind("<CORRECTACTION>MAYBE") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<DTUSER>2020xx01") == bank_statement::F_DATE);
+    assert(statement_checks::ofx_kind("<NAME>A<PAYEE><NAME>B</PAYEE>") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<CURRENCY><CURRATE>1<CURSYM>EUR</CURRENCY><ORIGCURRENCY><CURRATE>1<CURSYM>EUR</ORIGCURRENCY>") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<CURRENCY><CURRATE>0<CURSYM>EUR</CURRENCY>") == bank_statement::F_AMOUNT);
+    assert(statement_checks::ofx_kind("<CURRENCY><CURRATE>1<CURSYM>ZZZ</CURRENCY>") == bank_statement::F_AMOUNT);
+    assert(statement_checks::ofx_kind("<CURRENCY><CURSYM>EUR</CURRENCY>") == bank_statement::F_AMOUNT);
 }
 
 fn test_ofx_more() {
@@ -701,7 +701,7 @@ fn test_ofx_more() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     var buf: u8[>..] = [];
-    let f = bank_statement::parse_ofx(common_2::OFX_EXTRA2, lim, ropts, sts, ens, bals, notes, buf);
+    let f = bank_statement::parse_ofx(sample_texts::OFX_EXTRA2, lim, ropts, sts, ens, bals, notes, buf);
     if f.kind != 0 { print("FAIL ofx more ", bank_statement::kind_name(f.kind), " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(ens.len == 2);
@@ -718,8 +718,8 @@ fn test_ofx_more() {
     assert(y.image_count == 1 && y.image.avail.year == 2020 && y.image.avail.month == 2 && !y.image.has_delay);
     var v = 0;
     while v < 2 {
-        var o = common::ofx_wopts(102);
-        if v == 1 { o = common::ofx_wopts(211); o.indent = true; }
+        var o = statement_checks::ofx_wopts(102);
+        if v == 1 { o = statement_checks::ofx_wopts(211); o.indent = true; }
         var out: u8[>..] = [];
         let w = bank_statement::write_ofx(sts, ens, notes, o, lim, out);
         if w.kind != 0 { print("FAIL write more ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }
@@ -733,13 +733,13 @@ fn test_ofx_more() {
         let g = bank_statement::parse_ofx(out, lim, ropts, s2, e2, b2, n2, u2);
         if g.kind != 0 { print("FAIL reread more ", bank_statement::kind_name(g.kind), " ", g.tag, " ", g.detail, "\n"); }
         assert(g.kind == 0);
-        common::more_equal(ens[0], e2[0]);
-        common::more_equal(ens[1], e2[1]);
+        statement_checks::more_equal(ens[0], e2[0]);
+        statement_checks::more_equal(ens[1], e2[1]);
         assert(e2[0].ofx.image_count == 2);
         v += 1;
     }
     // Refusals.
-    let wo = common::ofx_wopts(102);
+    let wo = statement_checks::ofx_wopts(102);
     ens[0].ofx.inv401k_source = "OTHER";
     var r1: u8[>..] = [];
     assert(bank_statement::write_ofx(sts, ens, notes, wo, lim, r1).kind == bank_statement::F_SYNTAX);
@@ -778,14 +778,14 @@ fn test_ofx_more() {
 }
 
 fn test_ofx_more_faults() {
-    assert(common::ofx_kind("<SIC>12ab") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<INV401KSOURCE>NOPE") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<BANKACCTTO><BANKID>1<ACCTID>2<ACCTTYPE>CD</BANKACCTTO><CCACCTTO><ACCTID>3</CCACCTTO>") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<IMAGEDELAY>1<DTIMAGEAVAIL>20200101</IMAGEDATA>") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>NET</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<SIC>12ab") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<INV401KSOURCE>NOPE") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<BANKACCTTO><BANKID>1<ACCTID>2<ACCTTYPE>CD</BANKACCTTO><CCACCTTO><ACCTID>3</CCACCTTO>") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<IMAGEDELAY>1<DTIMAGEAVAIL>20200101</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>NET</IMAGEDATA>") == bank_statement::F_SYNTAX);
     // A third image is a fault.
-    assert(common::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>a<IMAGEREFTYPE>URL</IMAGEDATA><IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>b<IMAGEREFTYPE>URL</IMAGEDATA><IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>c<IMAGEREFTYPE>URL</IMAGEDATA>") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<IMAGEDELAY>-1</IMAGEDATA>") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<CHECKSUP>BOTH</IMAGEDATA>") == bank_statement::F_SYNTAX);
-    assert(common::ofx_kind("<SIC>5411<INV401KSOURCE>MATCH") == 0);
+    assert(statement_checks::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>a<IMAGEREFTYPE>URL</IMAGEDATA><IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>b<IMAGEREFTYPE>URL</IMAGEDATA><IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>c<IMAGEREFTYPE>URL</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<IMAGEDELAY>-1</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<IMAGEDATA><IMAGETYPE>TAX<IMAGEREF>r<IMAGEREFTYPE>URL<CHECKSUP>BOTH</IMAGEDATA>") == bank_statement::F_SYNTAX);
+    assert(statement_checks::ofx_kind("<SIC>5411<INV401KSOURCE>MATCH") == 0);
 }

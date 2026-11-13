@@ -7,7 +7,8 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
+import statement_checks;
+import sample_texts;
 
 fn test_mt940_basic() {
     let lim = bank_statement::default_limits();
@@ -17,7 +18,7 @@ fn test_mt940_basic() {
     var bals: bank_statement::Balance[>..] = [];
     var notes: bank_statement::Note[>..] = [];
     var xbuf2: u8[>..] = [];
-    let f = bank_statement::parse_mt940(common::STMT1, lim, opts, sts, ens, bals, notes, xbuf2);
+    let f = bank_statement::parse_mt940(sample_texts::STMT1, lim, opts, sts, ens, bals, notes, xbuf2);
     if f.kind != 0 { print("FAIL ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.tag, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(sts.len == 1);
@@ -55,24 +56,24 @@ fn test_mt940_basic() {
 
 fn test_mt940_balance_error() {
     // One cent off: the closing balance does not match.
-    common::run_mt940("{4:\n:20:A\n:25:X\n:60F:C250101EUR1000,00\n:61:250102C500,00NTRFREF\n:62F:C250102EUR1500,01\n-}", false, 7, "62F");
+    statement_checks::run_mt940("{4:\n:20:A\n:25:X\n:60F:C250101EUR1000,00\n:61:250102C500,00NTRFREF\n:62F:C250102EUR1500,01\n-}", false, 7, "62F");
     // The same file passes with the check off.
-    common::run_mt940("{4:\n:20:A\n:25:X\n:60F:C250101EUR1000,00\n:61:250102C500,00NTRFREF\n:62F:C250102EUR1500,01\n-}", true, 0, "");
+    statement_checks::run_mt940("{4:\n:20:A\n:25:X\n:60F:C250101EUR1000,00\n:61:250102C500,00NTRFREF\n:62F:C250102EUR1500,01\n-}", true, 0, "");
     // A good statement with a debit opening balance.
-    common::run_mt940(":20:A\n:60F:D250101EUR100,00\n:61:250102C150,00NTRFREF\n:62F:C250102EUR50,00\n", false, 0, "");
+    statement_checks::run_mt940(":20:A\n:60F:D250101EUR100,00\n:61:250102C150,00NTRFREF\n:62F:C250102EUR50,00\n", false, 0, "");
     // Reversals: RC takes money out, RD puts money in.
-    common::run_mt940(":20:A\n:60F:C250101EUR100,00\n:61:250102RC30,00NTRFREF\n:61:250102RD10,00NTRFREF\n:62F:C250102EUR80,00\n", false, 0, "");
+    statement_checks::run_mt940(":20:A\n:60F:C250101EUR100,00\n:61:250102RC30,00NTRFREF\n:61:250102RD10,00NTRFREF\n:62F:C250102EUR80,00\n", false, 0, "");
     // No closing balance with the check on is a fault.
-    common::run_mt940(":20:A\n:60F:C250101EUR100,00\n", false, 7, "62F");
+    statement_checks::run_mt940(":20:A\n:60F:C250101EUR100,00\n", false, 7, "62F");
 }
 
 fn test_mt940_faults() {
-    common::run_mt940(":20:A\n:99:X\n", false, 3, "99");
-    common::run_mt940(":25:X\n", false, 2, "25");
-    common::run_mt940("stray\n", false, 2, "");
-    common::run_mt940(":20:A\n:60F:X250101EUR1,00\n", false, 2, "60F");
-    common::run_mt940(":20:A\n:60F:C251301EUR1,00\n", false, 6, "60F");
-    common::run_mt940(":20:A\n:60F:C250101EUR1,2,3\n", false, 4, "60F");
+    statement_checks::run_mt940(":20:A\n:99:X\n", false, 3, "99");
+    statement_checks::run_mt940(":25:X\n", false, 2, "25");
+    statement_checks::run_mt940("stray\n", false, 2, "");
+    statement_checks::run_mt940(":20:A\n:60F:X250101EUR1,00\n", false, 2, "60F");
+    statement_checks::run_mt940(":20:A\n:60F:C251301EUR1,00\n", false, 6, "60F");
+    statement_checks::run_mt940(":20:A\n:60F:C250101EUR1,2,3\n", false, 4, "60F");
 }
 
 fn test_mt940_multi() {
@@ -100,12 +101,12 @@ fn test_mt940_multi() {
 
 fn test_interim_flag_keeps_check() {
     // A :13D: or :34F: line must not turn the balance check off.
-    common::run_mt940(":20:A\n:13D:2501021530+0100\n:60F:C250101EUR100,00\n:61:250101C1,00NTRFX\n:62F:C250101EUR999,00\n", false, 7, "62F");
-    common::run_mt940(":20:A\n:34F:EUR0,\n:60F:C250101EUR100,00\n:61:250101C1,00NTRFX\n:62F:C250101EUR999,00\n", false, 7, "62F");
+    statement_checks::run_mt940(":20:A\n:13D:2501021530+0100\n:60F:C250101EUR100,00\n:61:250101C1,00NTRFX\n:62F:C250101EUR999,00\n", false, 7, "62F");
+    statement_checks::run_mt940(":20:A\n:34F:EUR0,\n:60F:C250101EUR100,00\n:61:250101C1,00NTRFX\n:62F:C250101EUR999,00\n", false, 7, "62F");
     // An interim report with only one balance is not a statement: no fault from the missing one.
-    common::run_mt940(":20:A\n:34F:EUR0,\n:61:250101C1,00NTRFX\n", false, 0, "");
+    statement_checks::run_mt940(":20:A\n:34F:EUR0,\n:61:250101C1,00NTRFX\n", false, 0, "");
     // A good statement with an interim line still passes.
-    common::run_mt940(":20:A\n:34F:EUR0,\n:60F:C250101EUR100,00\n:61:250101C1,00NTRFX\n:62F:C250101EUR101,00\n", false, 0, "");
+    statement_checks::run_mt940(":20:A\n:34F:EUR0,\n:60F:C250101EUR100,00\n:61:250101C1,00NTRFX\n:62F:C250101EUR101,00\n", false, 0, "");
 }
 
 fn test_balance_checked() {
@@ -130,9 +131,9 @@ fn test_balance_checked() {
 }
 
 fn test_lone_cr() {
-    common::run_mt940(":20:A\r:60F:C250101EUR0,00\r", false, 2, "");
-    common::run_mt940(":20:A\r\n:60F:C250101EUR0,00\r\n:62F:C250101EUR0,00\r\n", false, 0, "");
-    common::run_qif("!Type:Bank\rT1\r", 1, 2);
+    statement_checks::run_mt940(":20:A\r:60F:C250101EUR0,00\r", false, 2, "");
+    statement_checks::run_mt940(":20:A\r\n:60F:C250101EUR0,00\r\n:62F:C250101EUR0,00\r\n", false, 0, "");
+    statement_checks::run_qif("!Type:Bank\rT1\r", 1, 2);
 }
 
 // test_mt940_64_65 checks the typed available and forward balances.
@@ -167,7 +168,7 @@ fn test_mt940_64_65() {
     let g = bank_statement::parse_mt940(":20:A\n:60F:C250101EUR0,00\n:62F:C250101EUR0,00\n", lim, opts, sts2, ens2, bals2, notes2, xbuf23);
     assert(g.kind == 0 && sts2[0].available.kind == 0 && sts2[0].forward.kind == 0);
     // A second :64: is a fault. A second :65: replaces the value.
-    common::run_mt940(":20:A\n:64:C250101EUR1,00\n:64:C250102EUR2,00\n", false, 2, "64");
+    statement_checks::run_mt940(":20:A\n:64:C250101EUR1,00\n:64:C250102EUR2,00\n", false, 2, "64");
     var sts3: bank_statement::Statement[>..] = [];
     var ens3: bank_statement::Entry[>..] = [];
     var bals3: bank_statement::Balance[>..] = [];

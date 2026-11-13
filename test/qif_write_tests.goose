@@ -7,12 +7,13 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
+import statement_checks;
+import sample_texts;
 
 fn test_write_qif() {
-    common::qif_round_trip(0);
-    common::qif_round_trip(bank_statement::DATE_DMY);
-    common::qif_round_trip(bank_statement::DATE_YMD);
+    statement_checks::qif_round_trip(0);
+    statement_checks::qif_round_trip(bank_statement::DATE_DMY);
+    statement_checks::qif_round_trip(bank_statement::DATE_YMD);
     let lim = bank_statement::default_limits();
     let ropts = bank_statement::QifOptions { date_order: bank_statement::DATE_MDY, .. };
     var recs: bank_statement::QifRecord[>..] = [];
@@ -20,7 +21,7 @@ fn test_write_qif() {
     var ext: bank_statement::QifField[>..] = [];
     var xbuf32: u8[>..] = [];
     var xbuf32_pre: u8[>..] = [];
-    assert(bank_statement::parse_qif(common::QIF1, lim, ropts, recs, spl, ext, xbuf32_pre).kind == 0);
+    assert(bank_statement::parse_qif(sample_texts::QIF1, lim, ropts, recs, spl, ext, xbuf32_pre).kind == 0);
     let wopts = bank_statement::QifWriteOptions { date_order: 0 };
     // A line end in a text is a fault: the value cannot add a field.
     recs[0].payee = "Eve\nT999.00";

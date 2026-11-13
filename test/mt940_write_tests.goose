@@ -7,7 +7,8 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
+import statement_checks;
+import sample_texts;
 
 fn test_write_mt940() {
     let lim = bank_statement::default_limits();
@@ -19,7 +20,7 @@ fn test_write_mt940() {
     let popts = bank_statement::Mt940Options { .. };
     var xbuf33: u8[>..] = [];
     var xbuf33_pre: u8[>..] = [];
-    assert(bank_statement::parse_mt940(common::STMT1, lim, popts, sts, ens, bals, notes, xbuf33_pre).kind == 0);
+    assert(bank_statement::parse_mt940(sample_texts::STMT1, lim, popts, sts, ens, bals, notes, xbuf33_pre).kind == 0);
     var out: u8[>..] = [];
     let w = bank_statement::write_mt940(sts, ens, lim, out);
     if w.kind != 0 { print("FAIL mt940 write ", bank_statement::kind_name(w.kind), " ", w.tag, " ", w.detail, "\n"); }

@@ -7,7 +7,8 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
+import statement_checks;
+import sample_texts;
 
 fn test_qif_basic() {
     let lim = bank_statement::default_limits();
@@ -16,7 +17,7 @@ fn test_qif_basic() {
     var spl: bank_statement::QifSplit[>..] = [];
     var ext: bank_statement::QifField[>..] = [];
     var xbuf9: u8[>..] = [];
-    let f = bank_statement::parse_qif(common::QIF1, lim, opts, recs, spl, ext, xbuf9);
+    let f = bank_statement::parse_qif(sample_texts::QIF1, lim, opts, recs, spl, ext, xbuf9);
     if f.kind != 0 { print("FAIL ", bank_statement::kind_name(f.kind), " line ", f.line, " ", f.detail, "\n"); }
     assert(f.kind == 0);
     assert(recs.len == 3);
@@ -84,19 +85,19 @@ fn test_qif_sections() {
 
 fn test_qif_dates() {
     // No order and a date that fits two orders: the caller must say.
-    common::run_qif("!Type:Bank\nD01/02/2025\n^\n", bank_statement::DATE_AUTO, 9);
+    statement_checks::run_qif("!Type:Bank\nD01/02/2025\n^\n", bank_statement::DATE_AUTO, 9);
     // A part above 12 gives the order.
-    common::run_qif("!Type:Bank\nD13/02/2025\n^\nD2025-03-04\n^\n", bank_statement::DATE_AUTO, 0);
-    common::run_qif("!Type:Bank\nD02/13/2025\n^\n", bank_statement::DATE_AUTO, 0);
+    statement_checks::run_qif("!Type:Bank\nD13/02/2025\n^\nD2025-03-04\n^\n", bank_statement::DATE_AUTO, 0);
+    statement_checks::run_qif("!Type:Bank\nD02/13/2025\n^\n", bank_statement::DATE_AUTO, 0);
     // Equal day and month are no ambiguity.
-    common::run_qif("!Type:Bank\nD05/05/2025\n^\n", bank_statement::DATE_AUTO, 0);
+    statement_checks::run_qif("!Type:Bank\nD05/05/2025\n^\n", bank_statement::DATE_AUTO, 0);
     // Detection reads the whole file.
-    common::run_qif("!Type:Bank\nD01/02/2025\n^\nD13/02/2025\n^\n", bank_statement::DATE_DETECT, 0);
-    common::run_qif("!Type:Bank\nD01/02/2025\n^\nD03/04/2025\n^\n", bank_statement::DATE_DETECT, 9);
-    common::run_qif("!Type:Bank\nD13/02/2025\n^\nD02/13/2025\n^\n", bank_statement::DATE_DETECT, 6);
+    statement_checks::run_qif("!Type:Bank\nD01/02/2025\n^\nD13/02/2025\n^\n", bank_statement::DATE_DETECT, 0);
+    statement_checks::run_qif("!Type:Bank\nD01/02/2025\n^\nD03/04/2025\n^\n", bank_statement::DATE_DETECT, 9);
+    statement_checks::run_qif("!Type:Bank\nD13/02/2025\n^\nD02/13/2025\n^\n", bank_statement::DATE_DETECT, 6);
     // A day that does not exist.
-    common::run_qif("!Type:Bank\nD02/30/2025\n^\n", bank_statement::DATE_MDY, 6);
-    common::run_qif("!Type:Bank\nDabc\n^\n", bank_statement::DATE_MDY, 6);
+    statement_checks::run_qif("!Type:Bank\nD02/30/2025\n^\n", bank_statement::DATE_MDY, 6);
+    statement_checks::run_qif("!Type:Bank\nDabc\n^\n", bank_statement::DATE_MDY, 6);
     // The year pivot: 99 is 1999 and 24 is 2024.
     let lim = bank_statement::default_limits();
     let opts = bank_statement::QifOptions { date_order: bank_statement::DATE_MDY, .. };
@@ -110,12 +111,12 @@ fn test_qif_dates() {
 }
 
 fn test_qif_faults() {
-    common::run_qif("!Type:Nope\n", 1, 3);
-    common::run_qif("D1/1/25\n", 1, 2);
-    common::run_qif("!Type:Bank\nTabc\n^\n", 1, 4);
-    common::run_qif("!Type:Bank\nT1,2,3\n^\n", 1, 4);
-    common::run_qif("!Type:Bank\nCQ\n^\n", 1, 2);
-    common::run_qif("", 1, 0);
+    statement_checks::run_qif("!Type:Nope\n", 1, 3);
+    statement_checks::run_qif("D1/1/25\n", 1, 2);
+    statement_checks::run_qif("!Type:Bank\nTabc\n^\n", 1, 4);
+    statement_checks::run_qif("!Type:Bank\nT1,2,3\n^\n", 1, 4);
+    statement_checks::run_qif("!Type:Bank\nCQ\n^\n", 1, 2);
+    statement_checks::run_qif("", 1, 0);
     // An unknown header names the header text, not just the !.
     let lim = bank_statement::default_limits();
     let opts = bank_statement::QifOptions { .. };
@@ -230,7 +231,7 @@ fn test_qif_ratio() {
     assert(spl[1].has_percent && spl[1].percent.num == 1 && spl[1].percent.den == 3);
     assert(recs[2].reimbursable && recs[2].reimbursable_text == "phone");
     // A value that fits no form is an amount fault with the code as tag.
-    common::run_qif("!Type:Invst\nI1 2 3/4\n^\n", bank_statement::DATE_MDY, 4);
+    statement_checks::run_qif("!Type:Invst\nI1 2 3/4\n^\n", bank_statement::DATE_MDY, 4);
     var recs2: bank_statement::QifRecord[>..] = [];
     var spl2: bank_statement::QifSplit[>..] = [];
     var ext2: bank_statement::QifField[>..] = [];

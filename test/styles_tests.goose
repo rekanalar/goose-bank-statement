@@ -7,20 +7,20 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
+import statement_checks;
 
 fn test_styles() {
     let c20 = "01234567890123456789";
     let c40 = "0123456789012345678901234567890123456789";
     let b20 = "01234567890123456789";
-    assert(common::style_kind(bank_statement::STYLE_SWIFT, c20, "") == bank_statement::F_SYNTAX);
-    assert(common::style_kind(bank_statement::STYLE_ASNB, c20, "") == 0);
-    assert(common::style_kind(bank_statement::STYLE_ASNB, c40, "") == bank_statement::F_SYNTAX);
-    assert(common::style_kind(bank_statement::STYLE_GLS, c40, "") == 0);
-    assert(common::style_kind(bank_statement::STYLE_GLS, c40, b20) == 0);
-    assert(common::style_kind(bank_statement::STYLE_GLS, c40, "0123456789012345678901234") == bank_statement::F_SYNTAX);
-    assert(common::style_kind(bank_statement::STYLE_ASNB, c20, b20) == bank_statement::F_SYNTAX);
-    assert(common::style_kind(7, c20, "") == bank_statement::F_SYNTAX);
+    assert(statement_checks::style_kind(bank_statement::STYLE_SWIFT, c20, "") == bank_statement::F_SYNTAX);
+    assert(statement_checks::style_kind(bank_statement::STYLE_ASNB, c20, "") == 0);
+    assert(statement_checks::style_kind(bank_statement::STYLE_ASNB, c40, "") == bank_statement::F_SYNTAX);
+    assert(statement_checks::style_kind(bank_statement::STYLE_GLS, c40, "") == 0);
+    assert(statement_checks::style_kind(bank_statement::STYLE_GLS, c40, b20) == 0);
+    assert(statement_checks::style_kind(bank_statement::STYLE_GLS, c40, "0123456789012345678901234") == bank_statement::F_SYNTAX);
+    assert(statement_checks::style_kind(bank_statement::STYLE_ASNB, c20, b20) == bank_statement::F_SYNTAX);
+    assert(statement_checks::style_kind(7, c20, "") == bank_statement::F_SYNTAX);
 }
 
 fn test_transcode() {

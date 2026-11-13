@@ -7,8 +7,8 @@ import xml from "rekanalar/goose-xml@v2.0.0";
 import process from "rekanalar/goose-process@v1.0.0";
 import bank_statement from "..";
 import finance from "rekanalar/goose-finance@v0.1.0";
-import common;
-import common_2;
+import statement_checks;
+import sample_texts;
 
 fn test_country() {
     assert(bank_statement::country_known("USA") && bank_statement::country_known("FRA") && bank_statement::country_known("ZWE"));
@@ -18,12 +18,12 @@ fn test_country() {
     for c in bank_statement::COUNTRY_CODES { assert(bank_statement::country_known(c)); }
     assert(bank_statement::COUNTRY_CODES.len == 250);
     let lim = bank_statement::default_limits();
-    let at = find(common_2::OFX_EXTRA, "<COUNTRY>FRA");
+    let at = find(sample_texts::OFX_EXTRA, "<COUNTRY>FRA");
     assert(at > 0);
     var tb: u8[>..] = [];
-    bank_statement::put(tb, common_2::OFX_EXTRA[..at]);
+    bank_statement::put(tb, sample_texts::OFX_EXTRA[..at]);
     bank_statement::put(tb, "<COUNTRY>ZZZ");
-    bank_statement::put(tb, common_2::OFX_EXTRA[at + 12..]);
+    bank_statement::put(tb, sample_texts::OFX_EXTRA[at + 12..]);
     let text: const u8[:] = tb;
     var sts: bank_statement::Statement[>..] = [];
     var ens: bank_statement::Entry[>..] = [];
@@ -42,5 +42,5 @@ fn test_country() {
     assert(bank_statement::parse_ofx(text, lim, strict, s2, e2, b2, n2, u2).kind == bank_statement::F_SYNTAX);
     // The writer always refuses it.
     var out: u8[>..] = [];
-    assert(bank_statement::write_ofx(sts, ens, notes, common::ofx_wopts(102), lim, out).kind == bank_statement::F_SYNTAX);
+    assert(bank_statement::write_ofx(sts, ens, notes, statement_checks::ofx_wopts(102), lim, out).kind == bank_statement::F_SYNTAX);
 }
